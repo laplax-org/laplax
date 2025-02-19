@@ -1,11 +1,15 @@
 """Test for utility functions."""
 
 import jax
+import jax.numpy as jnp
 import pytest_cases
 
 from laplax.curv.cov import create_posterior_fn
 from laplax.curv.ggn import create_ggn_mv
-from laplax.eval.metrics import DEFAULT_REGRESSION_METRICS
+from laplax.eval.metrics import (
+    DEFAULT_REGRESSION_METRICS,
+    DEFAULT_REGRESSION_METRICS_DICT,
+)
 from laplax.eval.pushforward import set_lin_pushforward
 from laplax.eval.utils import evaluate_metrics_on_dataset
 
@@ -50,14 +54,28 @@ def test_eval_metrics(curv_op, task):
         num_samples=5,  # TODO(2bys): Find a better way of setting this.
     )
 
-    results = jax.vmap(pushforward)(data["input"])
-    results = evaluate_metrics_on_dataset(
+    # results = jax.vmap(pushforward)(data["input"])
+    results_metrics_dict = evaluate_metrics_on_dataset(
+        pushforward,
+        data,
+        metrics_dict=DEFAULT_REGRESSION_METRICS_DICT,
+    )
+    results_metrics = evaluate_metrics_on_dataset(
         pushforward,
         data,
         metrics=DEFAULT_REGRESSION_METRICS,
     )
 
-    assert all(results["rmse"] > 0)
-    assert all(results["q"] > 0)
-    comparison = next(iter(results.values())).shape
-    assert all(k.shape == comparison for k in results.values())
+    # Check metrics are positive
+    assert all(results_metrics["rmse"] > 0)
+    assert all(results_metrics["q"] > 0)
+
+    # Check shapes match within each dict
+    comparison = next(iter(results_metrics.values())).shape
+    assert all(k.shape == comparison for k in results_metrics.values())
+
+    # Check metrics match between both approaches
+    assert jnp.allclose(results_metrics["rmse"], results_metrics_dict["rmse"])
+    assert jnp.allclose(results_metrics["q"], results_metrics_dict["q"])
+    assert jnp.allclose(results_metrics["nll"], results_metrics_dict["nll"])
+    assert jnp.allclose(results_metrics["crps"], results_metrics_dict["crps"])
