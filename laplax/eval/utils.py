@@ -15,64 +15,13 @@ These utilities streamline dataset evaluation workflows and ensure flexibility i
 computation and result aggregation.
 """
 
+from collections.abc import Iterator
+
 import jax
+from loguru import logger
 
 from laplax.types import Any, Array, Callable, Data, InputArray
 from laplax.util.utils import identity
-
-
-def named_finalize_fn_wrapper(
-    fn: Callable,
-) -> Callable:
-    """Wrap a function to store its result in a dictionary.
-
-    This wrapper allows a function to be executed with specified arguments, and
-    its output is stored in the `results` dictionary under a specified name.
-
-    Args:
-        fn: A callable function to be wrapped.
-
-    Returns:
-        Callable: A wrapped function that takes `results`, `aux`, `name`, and
-        other keyword arguments, and updates the `results` dictionary.
-    """
-
-    def wrapper(
-        results: dict[str, Array], aux: dict[str, Any] | None, name: str, **kwargs
-    ):
-        results[name] = fn(**kwargs)
-        return results, aux
-
-    return wrapper
-
-
-def named_finalize_fns(
-    fns: dict[str, Callable],
-    results: dict,  # Typing must allow empty dict for initializations
-    aux: dict[str, Any] | None = None,
-    **kwargs,
-) -> dict:
-    """Execute a set of named functions and store their results in a dictionary.
-
-    This function iterates over a dictionary of functions, executes each
-    function with the provided keyword arguments, and updates the `results`
-    dictionary with their outputs. The functions need to know what key to update the
-    `results` dict with, which is given by their name in the `functions` dict.
-
-    Args:
-        fns: A dictionary where keys are names for the results, and values
-            are callables to execute.
-        results: A dictionary to store the outputs of the functions.
-        aux: Auxiliary data passed to the functions.
-        **kwargs: Additional arguments passed to each function.
-
-    Returns:
-        The updated `results` dictionary containing the outputs of all
-        executed functions.
-    """
-    for name, func in fns.items():
-        results, aux = func(results=results, aux=aux, name=name, **kwargs)
-    return results
 
 
 def finalize_fns(
@@ -137,12 +86,142 @@ def evaluate_on_dataset(
     )
 
 
+def apply_fns(
+    *funcs: Callable,
+    names: list[str] | None = None,
+    field: str = "results",
+    **kwargs,
+):
+    """Apply multiple functions and store their results in a dictionary.
+
+    This function takes a sequence of functions, applies them to the provided inputs,
+    and stores their results in either the 'results' or 'aux' dictionary under
+    specified names. This function is useful for applying multiple metrics to the
+    results of a pushforward function.
+
+    Args:
+        *funcs: Variable number of callable functions to be applied.
+        names: Optional list of names for the functions' results. If None,
+            function names will be used.
+        field: String indicating where to store results, either 'results' or 'aux'
+            (default: 'results').
+        **kwargs: Mapping of argument names to keys in results/aux dictionaries
+            that will be passed to the functions.
+
+    Returns:
+        Callable: A function that takes 'results' and 'aux' dictionaries along with
+        additional kwargs, applies the functions, and returns the updated dictionaries.
+
+    Raises:
+        TypeError: If any of the provided functions is not callable.
+        ValueError: If the number of names doesn't match the number of functions,
+            if field is invalid, or if required keys are not found.
+    """
+    # Validate all funcs are callable
+    for i, func in enumerate(funcs):
+        if not callable(func):
+            msg = f"Argument {i} is not callable. Type is {type(func)}"
+            raise TypeError(msg)
+
+    def apply(results, aux, **local_kwargs):
+        # Create key-value pair for functions
+        key_value_pairs = {}
+        if kwargs:
+            for k, v in kwargs.items():
+                if v in results:
+                    key_value_pairs[k] = results[v]
+                elif v in aux:
+                    key_value_pairs[k] = aux[v]
+                else:
+                    msg = f"Key {k} not found in results or aux."
+                    raise ValueError(msg)
+        else:
+            logger.warning("No kwargs provided, using aux dictionary as input")
+            key_value_pairs = aux
+
+        # Ensure we have names for all functions
+        if names is None:
+            # Store under the function name
+            func_names = [func.__name__ for func in funcs]
+        else:
+            if len(names) != len(funcs):
+                msg = (
+                    f"Number of names ({len(names)}) does not match number "
+                    f"of functions ({len(funcs)})"
+                )
+                raise ValueError(msg)
+            func_names = names
+
+        # Apply each function and store results
+        for func, name in zip(funcs, func_names, strict=True):
+            res = func(**key_value_pairs, **local_kwargs)
+
+            if field == "results":
+                results[name] = res
+            elif field == "aux":
+                aux[name] = res
+            else:
+                msg = f"Field {field} must be either 'results' or 'aux'."
+                raise ValueError(msg)
+
+        return results, aux
+
+    return apply
+
+
+def transfer_entry(
+    mapping: dict[str, str] | list[str], field="results", access_from="aux"
+):
+    """Transfer entries between results and auxiliary dictionaries.
+
+    This function creates a callable that copies values between the results and
+    auxiliary dictionaries based on the provided mapping.
+
+    Args:
+        mapping: Either a dictionary mapping destination keys to source keys,
+            or a list of keys to copy with the same names.
+        field: String indicating where to store entries, either 'results' or 'aux'
+            (default: 'results').
+        access_from: String indicating which dictionary to read from, either
+            'results' or 'aux' (default: 'aux').
+
+    Returns:
+        Callable: A function that takes 'results' and 'aux' dictionaries,
+        transfers the specified entries, and returns the updated dictionaries.
+
+    Raises:
+        ValueError: If field is not 'results' or 'aux'.
+    """
+    # Convert list to dict if needed
+    if isinstance(mapping, list):
+        mapping = {k: k for k in mapping}
+
+    # Transfer the entry
+    def transfer(results, aux, **kwargs):
+        del kwargs
+        options = {"results": results, "aux": aux}
+        if field == "results":
+            for k, v in mapping.items():
+                results[k] = options[access_from][v]
+        elif field == "aux":
+            for k, v in mapping.items():
+                aux[k] = options[access_from][v]
+        else:
+            msg = f"Field {field} must be either 'results' or 'aux'."
+            raise ValueError(msg)
+
+        return results, aux
+
+    return transfer
+
+
 def evaluate_metrics_on_dataset(
     pred_fn: Callable[[InputArray], dict[str, Array]],
     data: Data,
     *,
-    metrics: dict[str, Callable],
-    apply: Callable = identity,
+    metrics: list | None = None,
+    metrics_dict: dict[str, Callable] | None = None,
+    reduce: Callable = identity,
     **kwargs,
 ) -> dict:
     """Evaluate a set of metrics on a dataset.
@@ -156,9 +235,12 @@ def evaluate_metrics_on_dataset(
             as a dictionary.
         data: A dataset, where each data point is a dictionary containing
             "input" and "target".
-        metrics: A dictionary of metrics to compute, where keys are metric
+        metrics: A list of metrics to compute, this should use the `apply_fns`
+            function to apply the metrics and `transfer_entry` function to transfer
+            entries between results and auxiliary dictionaries.
+        metrics_dict: A dictionary of metrics to compute, where keys are metric
             names and values are callables.
-        apply: A callable to transform the evaluated metrics (default: identity).
+        reduce: A callable to transform the evaluated metrics (default: identity).
         **kwargs: Additional arguments, including:
             - `evaluate_metrics_on_dataset_batch_size`: Batch size for processing data
               (default: `data_batch_size`).
@@ -167,13 +249,25 @@ def evaluate_metrics_on_dataset(
         dict: A dictionary containing the evaluated metrics for the entire
         dataset.
     """
-    # Wrap metrics
-    metrics = {name: named_finalize_fn_wrapper(fn) for name, fn in metrics.items()}
+    # Initialize metrics list from metric_dict if provided
+    metrics_from_dict = []
+    if metrics_dict is not None:
+        metrics_from_dict = [
+            apply_fns(*metrics_dict.values(), names=list(metrics_dict.keys()))
+        ]
 
-    # Setup pointwise evaluation
+    # Initialize final metrics list
+    if metrics is None and metrics_dict is None:
+        msg = "Either metrics or metric_dict must be provided."
+        raise ValueError(msg)
+    if metrics is None:
+        metrics = metrics_from_dict
+    elif metrics_dict is not None:
+        metrics.extend(metrics_from_dict)
+
     def evaluate_data_point(dp: Data) -> dict[str, Array]:
         pred = {**pred_fn(dp["input"]), "target": dp["target"]}
-        return named_finalize_fns(fns=metrics, results={}, aux=None, **pred)
+        return finalize_fns(fns=metrics, results={}, aux=pred, **kwargs)
 
     # Evaluate metrics
     evaluated_metrics = jax.lax.map(
@@ -183,4 +277,83 @@ def evaluate_metrics_on_dataset(
             "evaluate_metrics_on_dataset_batch_size", kwargs.get("data_batch_size")
         ),
     )
-    return {metric: apply(evaluated_metrics[metric]) for metric in evaluated_metrics}
+    return {metric: reduce(evaluated_metrics[metric]) for metric in evaluated_metrics}
+
+
+def evaluate_metrics_on_generator(
+    pred_fn: Callable[[InputArray], dict[str, Array]],
+    data_generator: Iterator[Data],
+    *,
+    metrics: list | None = None,
+    metrics_dict: dict[str, Callable] | None = None,
+    reduce: Callable = identity,
+    has_batch: bool = False,
+    **kwargs,
+) -> dict:
+    """Evaluate a set of metrics on a data generator.
+
+    Similar to evaluate_metrics_on_dataset, but works with a generator of data points
+    instead of a dataset array. This is useful for cases where the data doesn't fit
+    in memory or is being streamed.
+
+    Args:
+        pred_fn: A callable that takes an input array and returns predictions
+            as a dictionary.
+        data_generator: An iterator yielding data points, where each data point
+            is a dictionary containing "input" and "target".
+        metrics: A list of metrics to compute, this should use the `apply_fns`
+            function to apply the metrics and `transfer_entry` function to transfer
+            entries between results and auxiliary dictionaries.
+        metrics_dict: A dictionary of metrics to compute, where keys are metric
+            names and values are callables.
+        reduce: A callable to transform the evaluated metrics (default: identity).
+        has_batch: Data batches from generator have unaccounted batch dimension
+            (default: False).
+        **kwargs: Additional keyword arguments passed to the metrics functions.
+
+    Returns:
+        dict: A dictionary containing the evaluated metrics for all data points.
+
+    Raises:
+        ValueError: If neither metrics nor metric_dict is provided.
+    """
+    # Initialize metrics list from metric_dict if provided
+    metrics_from_dict = []
+    if metrics_dict is not None:
+        metrics_from_dict = [
+            apply_fns(*metrics_dict.values(), names=list(metrics_dict.keys()))
+        ]
+
+    # Initialize final metrics list
+    if metrics is None and metrics_dict is None:
+        msg = "Either metrics or metric_dict must be provided."
+        raise ValueError(msg)
+    if metrics is None:
+        metrics = metrics_from_dict
+    elif metrics_dict is not None:
+        metrics.extend(metrics_from_dict)
+
+    def evaluate_data(dp: Data) -> dict[str, Array]:
+        pred = {**pred_fn(dp["input"]), "target": dp["target"]}
+        return finalize_fns(fns=metrics, results={}, aux=pred, **kwargs)
+
+    # Vmap over batch dimension, if necessary.
+    if has_batch:
+        evaluate_data = jax.vmap(evaluate_data)
+    evaluate_data = jax.jit(evaluate_data)
+
+    # Evaluate metrics by iterating over the generator
+    all_results = [evaluate_data(dp) for dp in data_generator]
+
+    # Combine and reduce results
+    if not all_results:
+        return {}
+
+    # Get all metric names from the first result
+    metric_names = all_results[0].keys()
+
+    # Collect and reduce metrics
+    return {
+        metric: reduce([result[metric] for result in all_results])
+        for metric in metric_names
+    }
