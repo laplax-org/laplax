@@ -324,18 +324,17 @@ class DataLoaderMV:
                 wrap_function(
                     partial(self.mv, data=data),
                     input_fn=self.input_transform,
+                    output_fn=self.output_transform,
                 ),
                 **kwargs,
             )
 
-        return self.output_transform(
-            process_batches(
-                _body_fn,
-                self.loader,
-                transform=self.transform,
-                reduce=self.reduce,
-                verbose_logging=self.verbose_logging,
-            )
+        return process_batches(
+            _body_fn,
+            self.loader,
+            transform=self.transform,
+            reduce=self.reduce,
+            verbose_logging=self.verbose_logging,
         )
 
 
