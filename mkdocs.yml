@@ -36,7 +36,7 @@ nav:
   - Home: index.md
   - Design Philosophy: design_philosophy.md
   - Examples:
-    - Posterior GP Kernel: examples/0001_posterior_gp_kernel.ipynb
+    - Laplax for regression: examples/0001_laplax_for_regression.ipynb
     - Laplace on MNIST: examples/0002_laplax_on_mnist.ipynb
   - API reference:
     - laplax.curv:

@@ -374,7 +374,7 @@ def lobpcg_lowrank(
         m=rank,
         tol=tol,
         calc_dtype=calc_dtype,
-        a_dtype=mv_dtype,
+        a_dtype=mv_dtype,  # type: ignore  # noqa: PGH003 # TODO(2bys): Fix this.
         A_jittable=mv_jittable,
     )
 

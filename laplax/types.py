@@ -6,6 +6,8 @@ from typing import Any  # noqa: F401
 import jax
 from jaxtyping import Array, Float, Int, Num, PRNGKeyArray, PyTree  # noqa: F401
 
+from laplax.enums import CurvApprox
+
 # Basic JAX types
 KeyType = PRNGKeyArray
 DType = jax.typing.DTypeLike
@@ -38,3 +40,6 @@ DistState = dict[str, ...]  # type: ignore  # noqa: PGH003
 # - VJPType: Callable[[InputArray, PredArray], Params]
 # - Callable[[int], Params]
 # - None
+
+# Curvature types
+CurvatureKeyType = CurvApprox | str | None

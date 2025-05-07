@@ -278,31 +278,52 @@ def maximum_calibration_error(
 # --------------------------------------------------------------------------------
 
 
-def estimate_q(
+def chi_squared(
     pred_mean: Array,
     pred_std: Array,
     target: Array,
+    *,
+    averaged: bool = True,
     **kwargs,
 ) -> Float:
     r"""Estimate the q-value for predictions.
 
-    The q-value is a measure of the squared error normalized by the predicted
+    The $\chi^2$-value is a measure of the squared error normalized by the predicted
     variance.
 
     Mathematically:
-    $q = \frac{1}{n} \sum_{i=1}^n \frac{(y_i - \hat{y}_i)^2}{\sigma_i^2}$.
+    $$\chi^2_{\text{Avg}}
+    = \frac{1}{n} \sum_{i=1}^n \frac{(y_i - \hat{y}_i)^2}{\sigma_i^2}.$$
 
     Args:
         pred_mean: Array of predicted means.
         pred_std: Array of predicted standard deviations.
         target: Array of ground truth labels.
+        averaged: Whether to return the mean or sum of the q-values.
         **kwargs: Additional arguments (ignored).
 
     Returns:
         The estimated q-value.
     """
     del kwargs
-    return jnp.mean(jnp.power(pred_mean - target, 2) / jnp.power(pred_std, 2))
+    val = jnp.power(pred_mean - target, 2) / jnp.power(pred_std, 2)
+    return jnp.mean(val) if averaged else jnp.sum(val)
+
+
+def chi_squared_zero(**predictions) -> Float:
+    r"""Computes a calibration metric for a given set of predictions.
+
+    The calculated metric is the ratio between the error of the prediction and
+    the variance of the output uncertainty.
+
+    Args:
+        **predictions: Keyword arguments representing the model predictions,
+        typically including mean, variance, and target.
+
+    Returns:
+        The calibration metric value.
+    """
+    return jnp.abs(chi_squared(**predictions) - 1)
 
 
 def estimate_rmse(pred_mean: Array, target: Array, **kwargs) -> Float:
@@ -420,7 +441,7 @@ def nll_gaussian(
 
 DEFAULT_REGRESSION_METRICS_DICT = {
     "rmse": estimate_rmse,
-    "q": estimate_q,
+    "chi^2": chi_squared,
     "nll": nll_gaussian,
     "crps": crps_gaussian,
 }
@@ -428,10 +449,10 @@ DEFAULT_REGRESSION_METRICS_DICT = {
 DEFAULT_REGRESSION_METRICS = [
     apply_fns(
         estimate_rmse,
-        estimate_q,
+        chi_squared,
         nll_gaussian,
         crps_gaussian,
-        names=["rmse", "q", "nll", "crps"],
+        names=["rmse", "chi^2", "nll", "crps"],
         pred_mean="pred_mean",
         pred_std="pred_std",
         target="target",

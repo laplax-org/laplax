@@ -32,6 +32,35 @@ def cumsum(seq: Generator) -> list[int]:
     return [total := total + ele for ele in seq]
 
 
+def full_flatten(tree: PyTree) -> Array:
+    """Flatten a PyTree into a single 1D array.
+
+    This function takes a PyTree and concatenates all its leaves into a single
+    array.
+    """
+    return jnp.concatenate([jnp.ravel(leaf) for leaf in jax.tree.flatten(tree)[0]])
+
+
+def flatten_function(
+    fn: Callable,
+    layout: PyTree,
+) -> Callable:
+    """Wrap a function to flatten its input and output.
+
+    This function takes a function and a layout, and returns a new function that
+    accepts flattened input and returns also a flattened output.
+
+    Args:
+        fn: The function to wrap.
+        layout: The layout of the PyTree.
+
+    Returns:
+        The wrapped function.
+    """
+    flatten, unflatten = create_pytree_flattener(layout)
+    return wrap_function(fn, input_fn=unflatten, output_fn=flatten)
+
+
 def create_pytree_flattener(
     tree: PyTree,
 ) -> tuple[Callable[[PyTree], Array], Callable[[Array], PyTree]]:
@@ -49,11 +78,6 @@ def create_pytree_flattener(
             - `flatten`: A function that flattens a PyTree into a 1D array.
             - `unflatten`: A function that reconstructs the PyTree from a 1D array.
     """
-
-    def _flatten(tree: PyTree) -> jax.Array:
-        flat, _ = jax.tree.flatten(tree)
-        return jnp.concatenate([leaf.ravel() for leaf in flat])
-
     # Get shapes and tree def for unflattening
     flat, tree_def = jax.tree.flatten(tree)
     all_shapes = [leaf.shape for leaf in flat]
@@ -70,7 +94,7 @@ def create_pytree_flattener(
             ],
         )
 
-    return _flatten, _unflatten
+    return full_flatten, _unflatten
 
 
 def create_partial_pytree_flattener(

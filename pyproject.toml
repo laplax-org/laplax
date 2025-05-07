@@ -47,7 +47,15 @@ dev = [
     "curvlinops-for-pytorch",
     "laplace-torch",
 ]
-notebooks = ["torch", "torchvision", "optax", "flax"]
+notebooks = [
+    "torch", 
+    "torchvision", 
+    "optax", 
+    "flax", 
+    "pandas", 
+    "skerch", 
+    "ipywidgets",
+]
 docs = [
     "mkdocs",
     "mkdocs-material",

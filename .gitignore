@@ -12,7 +12,7 @@ local_*
 
 # Example notebooks
 *examples/data/*
-!examples/0001_posterior_gp_kernel.ipynb
+!examples/0001_laplax_for_regression.ipynb
 !examples/0002_laplax_on_mnist.ipynb
 
 # Directories
