@@ -15,7 +15,6 @@ class CurvApprox(StrEnum):
     LANCZOS = "lanczos"
     LOBPCG = "lobpcg"
 
-
 class LowRankMethod(StrEnum):
     LANCZOS = "lanczos"
     LOBPCG = "lobpcg"
