@@ -105,7 +105,7 @@ def getmode(model):
     return state
 
 def train_model(model, optimizer, train_loader, test_loader, seed, 
-                num_epochs, mode, partial_hvp, ell=0, batch_size=32):
+                num_epochs, mode, partial_hvp, ell=0.001, batch_size=32):
     
     np.random.seed(seed)
     cur_train_loader, _ = permute_loaders(train_loader=train_loader, test_loader=test_loader, seed=seed)
@@ -149,15 +149,13 @@ def load_mnist(batch_size=128, num_workers=4):
 
 def main():
     
-    import os
-    os.chdir('/home/richard/freetime/general') # change directory to find MNIST data path
     train_loader, test_loader = load_mnist()
     model = MLP(din = 28 * 28, dmid = 10, dout=10, rngs=nnx.Rngs(0))
     optimizer = nnx.Optimizer(model, optax.adamw(1e-3, weight_decay=5e-4))
 
     graphdef, state = nnx.split(model)
-    mode = zeros_like(state)
-    partial_hvp = identity()
+    mode = None #zeros_like(state)
+    partial_hvp = None #identity()
     seeds = np.arange(5)
     GGN_DATA_SPLIT = 32
     loss_histories = []
@@ -176,20 +174,20 @@ def main():
       
       print(f"ROUND : {i}, " + str([f"Dataset : {j}, Acc: {acc}" for j, acc in enumerate(eval_result)]))
       
-      # graph_def, params = nnx.split(model)
-      # def model_fn(input, params):
-      #     return nnx.call((graph_def, params))(input)[0]
+    #   graph_def, params = nnx.split(model)
+    #   def model_fn(input, params):
+    #       return nnx.call((graph_def, params))(input)[0]
     
-      # dummy_train, _ = permute_loaders(train_loader, test_loader, seed)
-      # xbatch, ybatch = next(iter(dummy_train))
-      # data = input_target_split((xbatch, ybatch)) # sample batch
+    #   dummy_train, _ = permute_loaders(train_loader, test_loader, seed)
+    #   xbatch, ybatch = next(iter(dummy_train))
+    #   data = input_target_split((xbatch, ybatch)) # sample batch
 
-      # partial_hvp = create_ggn_mv(
-      #     model_fn=model_fn,
-      #     params=params,
-      #     data=data,
-      #     loss_fn='cross_entropy'
-      # )
+    #   partial_hvp = create_ggn_mv(
+    #       model_fn=model_fn,
+    #       params=params,
+    #       data=data,
+    #       loss_fn='cross_entropy'
+    #   )
 
 if __name__ == '__main__':
    main()
