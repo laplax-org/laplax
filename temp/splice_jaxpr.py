@@ -9,7 +9,6 @@ from functools import partial
 from jax import jit, grad, vmap
 from jax import random
 
-# Importing Jax functions useful for tracing/interpreting.
 from functools import wraps
 
 from jax import lax
@@ -20,7 +19,9 @@ from jax._src.core import Atom, jaxpr_as_fun
 from typing import Sequence
 
 def flat_eval_jaxpr(jaxpr, consts, *args):
-  # Mapping from variable -> value
+  """
+    Evaluates a JaxPr.
+  """
   env = {}
 
   def read(var):
@@ -59,6 +60,10 @@ def flat_eval_jaxpr(jaxpr, consts, *args):
   return safe_map(read, jaxpr.outvars)
 
 def flat_splice_jaxpr(jaxpr : Jaxpr, consts : Sequence[Atom], *args):
+    """
+        Splices a jaxpr into a set of partially evaluated jaxprs. 
+        Currently we're splicing at the 'add' primitive.
+    """
     env = {}
     partials, intermediates, activations = [], [], []
 
@@ -99,7 +104,7 @@ def flat_splice_jaxpr(jaxpr : Jaxpr, consts : Sequence[Atom], *args):
 
     for i, eqn in enumerate(jaxpr.eqns):
         invals = safe_map(read, eqn.invars)
-        if "call_jaxpr" in eqn.params:
+        if "call_jaxpr" in eqn.params:              # if its a relu, record the activation
             subjaxpr = eqn.params["call_jaxpr"]
             sub_consts = subjaxpr.consts if hasattr(subjaxpr, 'consts') else ()
             if type(subjaxpr) is core.ClosedJaxpr:
@@ -107,8 +112,7 @@ def flat_splice_jaxpr(jaxpr : Jaxpr, consts : Sequence[Atom], *args):
                 sub_consts = subjaxpr.consts if hasattr(subjaxpr, 'consts') else ()
             outvals = flat_eval_jaxpr(subjaxpr, sub_consts, *invals) # assuming that we're just encountering relus
             activations.append(outvals[0])
-
-        else:
+        else:                                       
             outvals = eqn.primitive.bind(*invals, **eqn.params)
         if not eqn.primitive.multiple_results:
             outvals = [outvals]
@@ -120,6 +124,9 @@ def flat_splice_jaxpr(jaxpr : Jaxpr, consts : Sequence[Atom], *args):
     return partials, intermediates, activations
 
 def splice(fun):
+    """
+        Flattens the input values, then delegates to flat_splice_jaxpr
+    """
     @wraps(fun)
     def wrapped(*args, **kwargs):
         closed_jaxpr = jax.make_jaxpr(fun)(*args, **kwargs)
