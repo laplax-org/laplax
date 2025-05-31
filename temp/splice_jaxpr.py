@@ -154,7 +154,7 @@ def test_splice():
     
     def celoss(params, x, y):
         logits = model_fn(params, x)
-        loss = -(y * logits).mean()
+        loss = -(y * jax.nn.log_softmax(logits)).mean()
         return loss
     
     jaxprs, intermediates, activations = splice(celoss)(params, x, y)
