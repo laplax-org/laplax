@@ -200,8 +200,51 @@ def intergrad(fun, tagging_rule):
         return out
     return wrapped
 
+def test_intergrad():
+    model = MLP(5, 10, 10, jax.random.PRNGKey(0))
+    x, y = jnp.ones((10, 5)), jax.nn.one_hot(jnp.arange(10), num_classes=10)
+    params, static = eqx.partition(model, eqx.is_inexact_array)
+
+    def model_fn(params, x):
+        model = eqx.combine(params, static)
+        return model(x)
+    
+    def celoss(params, x, y):
+        logits = model_fn(params, x)
+        loss = -(y * jax.nn.log_softmax(logits)).mean()
+        return loss
+    
+    jintergrad = jax.jit(intergrad(celoss, tagging_rule=None)) # can jit and vmap
+    grads, activations = jax.vmap(jintergrad, in_axes=(None, 0, 0))(params, x, y)
+    return grads, activations
+
+class MLP(eqx.Module):
+    
+    linear1: eqx.nn.Linear
+    linear2: eqx.nn.Linear
+    linear3: eqx.nn.Linear
+
+    def __init__(self, in_dim, mid_dim, out_dim, key):
+        key1, key2, key3 = jax.random.split(key, 3)
+        self.linear1 = eqx.nn.Linear(in_dim, mid_dim, key=key1)
+        self.linear2 = eqx.nn.Linear(mid_dim, mid_dim, key=key2)
+        self.linear3 = eqx.nn.Linear(mid_dim, out_dim, key=key3)
+
+    def __call__(self, x):
+        x = self.linear1(x)
+        x = jax.nn.relu(x)
+        x = self.linear2(x)
+        x = jax.nn.relu(x)
+        x = self.linear3(x)
+
+        return x
 
 if __name__ == '__main__':
-    ff = intergrad(f, None)
-    print(ff(1.0))
-    print(jax.grad(f_pert, argnums=1)(1.0, [0.0, 0.0]))
+    # ff = intergrad(f, None)
+    # print(ff(1.0))
+    # print(jax.grad(f_pert, argnums=1)(1.0, [0.0, 0.0]))
+
+    g, a = test_intergrad()
+    print([gg.shape for gg in g])
+    print([aa.shape for aa in a])
+
