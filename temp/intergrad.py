@@ -2,6 +2,7 @@ import time
 
 import jax
 import jax.numpy as jnp
+from flax import nnx
 import equinox as eqx
 
 from itertools import chain
@@ -200,8 +201,8 @@ def intergrad(fun, tagging_rule):
         return out
     return wrapped
 
-def test_intergrad():
-    model = MLP(5, 10, 10, jax.random.PRNGKey(0))
+def test_intergrad_equinox():
+    model = eqxMLP(5, 10, 10, jax.random.PRNGKey(0))
     x, y = jnp.ones((10, 5)), jax.nn.one_hot(jnp.arange(10), num_classes=10)
     params, static = eqx.partition(model, eqx.is_inexact_array)
 
@@ -218,7 +219,41 @@ def test_intergrad():
     grads, activations = jax.vmap(jintergrad, in_axes=(None, 0, 0))(params, x, y)
     return grads, activations
 
-class MLP(eqx.Module):
+def test_intergrad_nnx():
+    model = nnx_mlp(5, 10, 10, nnx.Rngs(0))
+    pmodel = p_nnx_mlp(5, 10, 10, nnx.Rngs(0))
+    x, y = jnp.ones(5), jax.nn.one_hot(1, num_classes=10)
+
+    # make sample run
+    _ = pmodel(x)
+    _ = model(x)
+
+    graph, params = nnx.split(model)
+    def model_fn(p, x):
+        model = nnx.merge(graph, p)
+        return model(x)
+    
+    @nnx.grad(argnums=nnx.DiffState(argnum=0, filter=nnx.Any(nnx.Param, nnx.Perturbation)))
+    def p_celoss(model, x, y):
+        preds = jax.nn.log_softmax(model(x))
+        return -(preds * y).mean()
+
+    def value_p_celoss(model, x, y):
+        preds = jax.nn.log_softmax(model(x))
+        return -(preds * y).mean()
+    
+    def celoss(params, x, y):
+        logits = model_fn(params, x)
+        loss = -(y * jax.nn.log_softmax(logits)).mean()
+        return loss
+    
+    allgrads = p_celoss(pmodel, x, y)
+    intm_grads = [allgrads.xgrad1.value, allgrads.xgrad2.value]
+    activations, grads = intergrad(celoss, tagging_rule=None)(params, x, y)
+
+    return activations, grads
+
+class eqxMLP(eqx.Module):
     
     linear1: eqx.nn.Linear
     linear2: eqx.nn.Linear
@@ -239,12 +274,52 @@ class MLP(eqx.Module):
 
         return x
 
+class nnx_mlp(nnx.Module):
+
+  def __init__(self, in_dim, mid_dim, out_dim, key):
+    self.linear1 = nnx.Linear(in_dim, mid_dim, rngs=key)
+    self.linear2 = nnx.Linear(mid_dim, mid_dim, rngs=key)
+    self.linear3 = nnx.Linear(mid_dim, out_dim, rngs=key)
+
+  def __call__(self, x):
+
+    x = self.linear1(x)
+    x = jax.nn.relu(x)
+    x = self.linear2(x)
+    x = jax.nn.relu(x)
+    x = self.linear3(x)
+
+    return x
+
+class p_nnx_mlp(nnx.Module):
+
+  def __init__(self, in_dim, mid_dim, out_dim, key):
+    self.linear1 = nnx.Linear(in_dim, mid_dim, rngs=key)
+    self.linear2 = nnx.Linear(mid_dim, mid_dim, rngs=key)
+    self.linear3 = nnx.Linear(mid_dim, out_dim, rngs=key)
+
+  def __call__(self, x):
+
+    x = self.linear1(x)
+    x = self.perturb('xgrad1', x)
+    x = jax.nn.relu(x)
+    x = self.linear2(x)
+    x = self.perturb('xgrad2', x)
+    x = jax.nn.relu(x)
+    x = self.linear3(x)
+
+    return x
+
+
+
 if __name__ == '__main__':
     # ff = intergrad(f, None)
     # print(ff(1.0))
     # print(jax.grad(f_pert, argnums=1)(1.0, [0.0, 0.0]))
 
-    g, a = test_intergrad()
-    print([gg.shape for gg in g])
-    print([aa.shape for aa in a])
+    # g, a = test_intergrad_equinox()
+    # print([gg.shape for gg in g])
+    # print([aa.shape for aa in a])
+
+    test_intergrad_nnx()
 
