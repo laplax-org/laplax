@@ -128,6 +128,9 @@ def collect_numsamples_from_loader(loader, maxsamples):
            break
 
       assert len(x) > 0, "Accumulator is empty. Probably passed an exhausted generator as a loader."
-      
+
       xret, yret = jnp.concat(x, axis=0), jnp.concat(y, axis=0)
       return xret[:maxsamples], yret[:maxsamples]
+
+def d2name(kwds):
+    return "_".join([key + ':' + str(value) for key, value in kwds.items()])

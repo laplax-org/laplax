@@ -161,13 +161,20 @@ def train_setup(ell, batch_size, num_repetitions, fisher_fn, fn_kwargs={}):
   return raccu, hists_accu
   
 if __name__ == '__main__':
-  NUM_REP, INNER_FN = 5, ggn_inner
+
+  """
+    TODO:
+      - compare T1Fisher, Emp Fisher, GGN, Inner and noreg. For this i should probably first find good hyperparameters for ell for all of these methods... 
+  """
+  NUM_REP, INNER_FN = 3, ggn_inner
   kwlist = [
-    {'ell' : 0, 'batch_size' : 16},
-    {'ell' : 1e-4, 'batch_size' : 16},
-    {'ell' : 1e-4, 'batch_size' : 64},
-    {'ell' : 1e-4, 'batch_size' : 128},
-    {'ell' : 1e-4, 'batch_size' : 512},
+    {'ell' : 0.0,   'batch_size' : 128},
+    {'ell' : 1e-5,  'batch_size' : 128},
+    {'ell' : 1e-4,  'batch_size' : 128},
+    {'ell' : 1e-3,  'batch_size' : 128},
+    {'ell' : 1e-2,  'batch_size' : 128},
+    {'ell' : 1e-1,  'batch_size' : 128},
+    {'ell' : 1.0,   'batch_size' : 128},
   ]
 
   d={}
@@ -180,5 +187,5 @@ if __name__ == '__main__':
       'hists' : hists
     }
   
-  with open(f'ggn_batchsize.json', 'w') as file:
+  with open(f'ggn_lambda.json', 'w') as file:
     json.dump(d, file)
