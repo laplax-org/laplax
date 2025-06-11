@@ -43,7 +43,7 @@ def emp_fisher_inner(model, trainloader, batch_size, *args, **kwargs):
 
   xb, yb = collect_numsamples_from_loader(trainloader, maxsamples=batch_size)
   grads = nnx.grad(cross_entropy)(model, xb, yb)
-  sqgrads = jax.tree.map(lambda x : jnp.mean(x, axis=0)**2, grads) # mean and square
+  sqgrads = jax.tree.map(lambda x : jnp.mean(x**2, axis=0), grads) # square and mean
 
   def inner(v):
     return dot(v, jax.tree.map(lambda x, y: x * y, v, sqgrads))
@@ -94,16 +94,15 @@ def type1_fisher_inner(model, trainloader, batch_size, M=30, *args, **kwargs):
   for i in range(M):
     key, curkey = jax.random.split(key)
     grads = nnx.vmap(nnx.grad(partial(cross_entropy, key=curkey)), in_axes=(None, 0, 0))(model, xb, yb) # shape (batch, *param_sizes)
-    grads = jax.tree.map(lambda x: x.mean(0), grads)
+    grads = jax.tree.map(lambda x: (x**2).mean(0), grads)
     
     if running_mean is None:
       running_mean = grads
     else:
       running_mean = add(running_mean, mul(1/(i + 1), sub(grads, running_mean)))
-  sqgrads = jax.tree.map(lambda x: x**2, running_mean)
 
   def inner(v):
-    return dot(v, jax.tree.map(lambda x, y: x * y, v, sqgrads))
+    return dot(v, jax.tree.map(lambda x, y: x * y, v, running_mean))
   
   return inner
 
