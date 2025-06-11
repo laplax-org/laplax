@@ -248,9 +248,10 @@ def test_intergrad_nnx():
         return loss
     
     allgrads = p_celoss(pmodel, x, y)
-    intm_grads = [allgrads.xgrad1.value, allgrads.xgrad2.value]
+    intm_grads = [allgrads.xgrad1.value, allgrads.xgrad2.value, allgrads.xgrad3.value]
     activations, grads = intergrad(celoss, tagging_rule=None)(params, x, y)
 
+    print(all([jnp.allclose(a, b).all() for a, b in zip(intm_grads, grads)]))
     return activations, grads
 
 class eqxMLP(eqx.Module):
@@ -307,6 +308,7 @@ class p_nnx_mlp(nnx.Module):
     x = self.perturb('xgrad2', x)
     x = jax.nn.relu(x)
     x = self.linear3(x)
+    x = self.perturb('xgrad3', x)
 
     return x
 

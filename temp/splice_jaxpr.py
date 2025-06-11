@@ -86,9 +86,11 @@ def flat_splice_jaxpr(jaxpr : Jaxpr, consts : Sequence[Atom], *args):
             This means the following equation will be an application of the activation function.
             We want to transform the computation graph
 
+            
             c = dot a b
             d = add c e <<< idx
             f = relu(d)
+
             ...
 
             into a jaxpr which takes in the remaining arguments (params) and an intermediate result (d) and
