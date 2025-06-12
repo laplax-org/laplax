@@ -164,17 +164,18 @@ if __name__ == '__main__':
 
   """
     TODO:
-      - compare T1Fisher, Emp Fisher, GGN, Inner and noreg. For this i should probably first find good hyperparameters for ell for all of these methods... 
+      - compare T1Fisher, Emp Fisher, GGN, Inner and noreg. 
+      For this i should probably first find good hyperparameters for ell for all of these methods... 
   """
-  NUM_REP, INNER_FN = 3, ggn_inner
+  NUM_REP, INNER_FN = 3, emp_fisher_inner
   kwlist = [
     {'ell' : 0.0,   'batch_size' : 128},
-    {'ell' : 1e-5,  'batch_size' : 128},
-    {'ell' : 1e-4,  'batch_size' : 128},
-    {'ell' : 1e-3,  'batch_size' : 128},
-    {'ell' : 1e-2,  'batch_size' : 128},
-    {'ell' : 1e-1,  'batch_size' : 128},
-    {'ell' : 1.0,   'batch_size' : 128},
+    {'ell' : 1e+1,  'batch_size' : 128},
+    {'ell' : 1e+2,  'batch_size' : 128},
+    {'ell' : 2e+2,  'batch_size' : 128},
+    {'ell' : 8e+2,  'batch_size' : 128},
+    {'ell' : 1e+3,  'batch_size' : 128},
+    {'ell' : 3e+3,  'batch_size' : 128},
   ]
 
   d={}
@@ -187,5 +188,5 @@ if __name__ == '__main__':
       'hists' : hists
     }
   
-  with open(f'ggn_lambda.json', 'w') as file:
+  with open(f'emp_fisher_lambda.json', 'w') as file:
     json.dump(d, file)
