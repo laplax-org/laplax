@@ -208,6 +208,10 @@ def train_setup_kfac(ell, batch_size, num_repetitions, fn_kwargs={}):
 
 
 if __name__ == '__main__':
+    """
+        TODO: this is killed if i nnx.jit the training loop...
+        Somethings off, perhaps the vmap taking too much memory.
+    """
     NUM_REP = 3
     kwlist = [
         {'ell': 0.0,   'batch_size': 128},
