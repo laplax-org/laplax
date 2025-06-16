@@ -42,6 +42,8 @@ from ex_helper import ( # isort: skip
     fix_random_seed
 )
 
+HIDDEN_CHANNELS = 50
+
 # ------------------------------------------------------------------------------
 # TASK Setup
 # ------------------------------------------------------------------------------
@@ -84,10 +86,12 @@ def build_sinusoid_data(
 class Model(nnx.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, rngs):
         self.linear1 = nnx.Linear(in_channels, hidden_channels, rngs=rngs)
+        self.linear2 = nnx.Linear(hidden_channels, hidden_channels, rngs=rngs)
         self.final_layer = nnx.Linear(hidden_channels, out_channels, rngs=rngs)
 
     def __call__(self, x):
         h = nnx.tanh(self.linear1(x))
+        h = nnx.tanh(self.linear2(h))
         return self.final_layer(h)
 
 
@@ -105,11 +109,11 @@ def train_sinusoid_model(
     sigma_noise=0.2,
     sinus_factor=2.0 * jnp.pi,
     intervals=DEFAULT_INTERVALS,
-    batch_size=20,
+    batch_size=15,
     model_seed=0,
     data_seed=42,
     # Model settings
-    hidden_channels=64,
+    hidden_channels=HIDDEN_CHANNELS,
     # Training settings
     n_epochs=1000,
     lr=1e-3,
@@ -154,7 +158,7 @@ def train_sinusoid_model(
 
 def evaluate_regression_example(
     ckpt_dir: str = "./checkpoints/",
-    model_name: str = "regression_model_h64_n150_seed0",
+    model_name: str = f"regression_model_h{HIDDEN_CHANNELS}_n150_seed0",
     *,
     # Laplace settings
     laplace_kwargs: dict,
@@ -189,7 +193,7 @@ def evaluate_regression_example(
         Model,
         model_kwargs={
             "in_channels": 1,
-            "hidden_channels": 64,
+            "hidden_channels": HIDDEN_CHANNELS,
             "out_channels": 1
         },
         checkpoint_path=ckpt_path
@@ -396,7 +400,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--hidden_channels",
         type=int,
-        default=64,
+        default=HIDDEN_CHANNELS,
     )
     parser.add_argument(
         "--model_seed",
@@ -465,7 +469,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_name",
         type=str,
-        default="regression_model_h64_n150_seed0",
+        default=f"regression_model_h{HIDDEN_CHANNELS}_n150_seed0",
     )
 
     parser.add_argument(
@@ -536,7 +540,7 @@ if __name__ == "__main__":
                 "log_prior_prec_min": -3,
                 "log_prior_prec_max": 3,
                 "patience": None,
-                "num_epochs": 300,
+                "num_epochs": 50,
             },
             csv_logger=csv_logger,
             use_wandb=args.wandb,

@@ -18,6 +18,9 @@ class DataLoader:
         self.indices = np.arange(self.dataset_size)
         self.rng = np.random.default_rng(seed=0)
 
+    def __len__(self):
+        return self.dataset_size // self.batch_size
+
     def __iter__(self):
         if self.shuffle:
             self.rng.shuffle(self.indices)
@@ -37,9 +40,7 @@ class DataLoader:
 
 
 DEFAULT_INTERVALS = [
-    (0, 2),
-    (4, 5),
-    (6, 8),
+    (-2, 2),
 ]
 
 
@@ -49,9 +50,9 @@ def get_sinusoid_example(
     num_valid_data: int = 50,
     num_test_data: int = 100,
     sigma_noise: float = 0.3,
-    sinus_factor: float = 1.0,
+    sinus_factor: float = 2.0 * jnp.pi,
     intervals: list[tuple[float, float]] = DEFAULT_INTERVALS,
-    test_interval: tuple[float, float] = (0.0, 8.0),
+    test_interval: tuple[float, float] = (-2.0, 2.0),
     rng_key=None,
 ) -> tuple[
     jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray

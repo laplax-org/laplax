@@ -233,13 +233,44 @@ def train_map_model(
     train_loader,
     n_epochs,
     *,
-    lr=1e-3,
+    lr=1e-2,
     verbose=True,
     log_every_n_epochs=10,
     loss_type="mse",
     test_loader=None,
+    warmup_steps=0,
+    decay_steps=None,
+    end_lr=None,
 ):
-    optimizer = nnx.Optimizer(model, optax.adamw(lr))
+    """Train a model using MAP estimation.
+
+    Args:
+        model: The model to train
+        train_loader: DataLoader for training data
+        n_epochs: Number of epochs to train for
+        lr: Initial learning rate
+        verbose: Whether to print progress
+        log_every_n_epochs: How often to log progress
+        loss_type: Type of loss function ("mse" or "cross_entropy")
+        test_loader: Optional DataLoader for test data
+        warmup_steps: Number of warmup steps for learning rate schedule
+        decay_steps: Number of decay steps for learning rate schedule (defaults to total steps)
+        end_lr: Final learning rate after decay (defaults to 0.1 * initial lr)
+    """
+    # Calculate total steps for learning rate schedule
+    total_steps = n_epochs * len(train_loader)
+    decay_steps = decay_steps or total_steps
+    end_lr = end_lr or lr * 0.001
+
+    # Create learning rate schedule
+    schedule = optax.warmup_cosine_decay_schedule(
+        init_value=0.0,
+        peak_value=lr,
+        warmup_steps=warmup_steps,
+        decay_steps=decay_steps,
+        end_value=end_lr,
+    )
+    optimizer = nnx.Optimizer(model, optax.adamw(schedule))
     loss = 0.0
 
     if loss_type == "mse":
