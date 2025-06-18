@@ -1,0 +1,4 @@
+/* Hide the site name next to the logo in the header */
+.md-header__title .md-header__topic {
+    display: none !important;
+}
