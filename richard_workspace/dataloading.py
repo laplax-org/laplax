@@ -3,9 +3,6 @@ import os
 import numpy as np
 import jax
 import jax.numpy as jnp
-import matplotlib.pyplot as plt
-import torch
-from torch.utils.data import Dataset, DataLoader as TorchDataLoader
 from torchvision import datasets, transforms
 
 from jaxtyping import Array

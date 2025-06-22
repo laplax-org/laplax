@@ -2,7 +2,6 @@ import jax
 import jaxtyping
 import jax.numpy as jnp
 
-from flax import nnx
 from typing import *
 from richard_workspace.dataloading import *
 
@@ -28,4 +27,4 @@ def accuracy(model, x, y):
     return sum(y_pred == y_true).astype(int) / len(y)
 
 def d2name(kwds):
-    return "--".join([key + ':' + str(value) for key, value in kwds.items()])
+    return "--".join([key + ':' + str(value.__name__ if callable(value) else value) for key, value in kwds.items()])

@@ -5,11 +5,48 @@ from flax import nnx
 from richard_workspace.dataloading import collect
 
 from functools import partial
+from temp.intergrad import intergrad
 
 from laplax.curv import create_ggn_mv
 from laplax.util.loader import input_target_split
 from laplax.util.tree import sub, dot, mul, add
 from typing import *
+
+def kfac_inner_fn(model, trainloader, maxsamples=128, *args, **kwargs):
+    """
+        rough KFAC impl 
+    """
+    _graph, _params = nnx.split(model)
+    def model_fn(p, x):
+        model = nnx.merge(_graph, p)
+        return model(x)
+    def celoss(params, x, y):
+        logits = model_fn(params, x)
+        loss = -(y * jax.nn.log_softmax(logits)).mean()
+        return loss
+    x, y = collect(trainloader, maxsamples=maxsamples)
+    
+    intergrad_mapped = jax.vmap(jax.jit(intergrad(celoss, tagging_rule=None)), in_axes=(None, 0, 0))
+    activations, grads = intergrad_mapped(_params, x, y)
+    activations = [x] + activations
+    activations = [jnp.concatenate([arr, jnp.ones((arr.shape[0], 1))], axis=-1) for arr in activations]
+    def reduce_outers(arrs, factor):
+        return jnp.sum(jax.vmap(lambda x: jnp.outer(x, x))(arrs), axis=0) * factor
+    R = 1 / (maxsamples * y.shape[-1])
+    As = [reduce_outers(arrs, factor=R) for arrs in activations]
+    Bs = [reduce_outers(arrs, factor=1/arrs.shape[0]) for arrs in grads]
+    blocks = jax.lax.stop_gradient([jnp.kron(a, b) for a, b in zip(As, Bs)])
+    
+    def kfac_inner(v, blocks=blocks):
+        arrs = jax.tree.leaves(v)
+        weights, biases = arrs[1::2], arrs[0::2]
+        vsplit = [jnp.concatenate([w.reshape(-1), b]) for w, b in zip(weights, biases)]
+        Bv = [bi @ vi for bi, vi in zip(blocks, vsplit)]
+        vtBv = sum([jnp.dot(vv, bv) for vv, bv in zip(vsplit, Bv)])
+        return vtBv
+    
+    del activations, grads, As, Bs
+    return kfac_inner
 
 def emp_fisher_inner(model, trainloader, maxsamples, *args, **kwargs):
     """
