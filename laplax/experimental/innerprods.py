@@ -3,21 +3,25 @@ import jax
 import jax.numpy as jnp
 
 from flax import nnx
-from laplax.util.datasets import collect, DataLoader
-
-
 from functools import partial
 from laplax.experimental.kfac import kfac_blocks
 
 from laplax.curv import create_ggn_mv
-from laplax.util.loader import input_target_split
 from laplax.util.tree import sub, dot, mul, add
 from typing import *
 from jaxtyping import Array, PyTree
 
-def kfac_inner_fn(params : PyTree, model_fn : Callable[[PyTree, Array], Array], trainloader : DataLoader, 
-                  maxsamples : int =128, 
-                  loss_fn : Union[Callable, Literal['cross_entropy', 'mse']] = 'cross_entropy',
+from laplax.enums import LossFn
+from laplax.types import (
+    Array,
+    Data,
+    ModelFn,
+    Params
+)
+
+def kfac_inner_fn(params : PyTree, model_fn : ModelFn, data : Data, 
+                  maxsamples : int = 128, 
+                  loss_fn : Union[LossFn, Callable, Literal['cross_entropy', 'mse']] = 'cross_entropy',
                   *args, **kwargs) -> Callable[[Array], Array]:
     """
         Returns a function that computes the KFAC inner product function for a model.
@@ -37,13 +41,13 @@ def kfac_inner_fn(params : PyTree, model_fn : Callable[[PyTree, Array], Array], 
             "Current assumption is that the pytree structure puts bias \
                 before weights AND your model only consists of Linear Layers.")
     
-    if loss_fn != 'cross_entropy':
+    if loss_fn != LossFn.CROSS_ENTROPY:
         raise NotImplementedError("Only cross_entropy loss is supported for now.")
         
-    x, y = collect(trainloader, maxsamples=maxsamples)
+    x, y = data['input'], data['target']
     As, Bs = kfac_blocks(params=params, model_fn=model_fn, x=x, y=y)
 
-    def kfac_quadratic(v, As=As, Bs=Bs):
+    def kfac_vtmv(v, As=As, Bs=Bs):
         leaves = jax.tree_util.tree_leaves(v)
         vtFv = 0.0
         ws, bs = leaves[1::2], leaves[0::2]
@@ -54,11 +58,11 @@ def kfac_inner_fn(params : PyTree, model_fn : Callable[[PyTree, Array], Array], 
             W_ext = jnp.concatenate([b[jnp.newaxis, :], w], axis=0) 
             vtFv += jnp.sum(W_ext * (A_fac @ W_ext @ B_fac))
         return vtFv
-    return kfac_quadratic
+    return kfac_vtmv
 
-def emp_fisher_inner(params : PyTree, model_fn : Callable[[PyTree, Array], Array], trainloader : DataLoader, 
+def emp_fisher_inner(params : Params, model_fn : ModelFn, data : Data, 
                      maxsamples : int = 128, 
-                     loss_fn : Union[Callable, Literal['cross_entropy', 'mse']] = 'cross_entropy',
+                     loss_fn : Union[LossFn, Callable, Literal['cross_entropy', 'mse']] = 'cross_entropy',
                      *args, **kwargs):
     """
     Computes the empirical Fisher information inner product function for a model.
@@ -74,15 +78,16 @@ def emp_fisher_inner(params : PyTree, model_fn : Callable[[PyTree, Array], Array
         inner: A function that computes the empirical Fisher inner product with a vector v.
     """
     
-    if loss_fn != 'cross_entropy':
+    if loss_fn != LossFn.CROSS_ENTROPY:
         raise NotImplementedError("Only cross_entropy loss is supported for now.")
-    
+        
+    x, y = data['input'], data['target']
+
     def cross_entropy(params, x, y):
         log_y_pred = jax.nn.log_softmax(model_fn(params, x))
         return -(log_y_pred * y).mean()
 
-    xb, yb = collect(trainloader, maxsamples=maxsamples)
-    grads = nnx.grad(cross_entropy)(params, xb, yb)
+    grads = nnx.grad(cross_entropy)(params, x, y)
     sqgrads = jax.tree.map(lambda x: jnp.mean(x**2, axis=0), grads)  # square and mean
 
     def inner(v, sqgrads=sqgrads):
@@ -107,9 +112,9 @@ def unscaled_dot_product(*args, **kwargs):
         return dot(v, v)
     return inner
 
-def ggn_inner(params : PyTree, model_fn : Callable[[PyTree, Array], Array], trainloader : DataLoader, 
+def ggn_inner(params : Params, model_fn : ModelFn, data : Data, 
             numsamples_train : int, maxsamples : int = 128,
-            loss_fn : Union[Callable, Literal['cross_entropy', 'mse']] = 'cross_entropy',
+            loss_fn : Union[LossFn, Callable, Literal['cross_entropy', 'mse']] = 'cross_entropy',
             *args, **kwargs):
     """
     Returns a function that computes the Generalized Gauss-Newton (GGN) inner product for a model.
@@ -125,10 +130,6 @@ def ggn_inner(params : PyTree, model_fn : Callable[[PyTree, Array], Array], trai
     Returns:
         inner: A function that computes the GGN inner product with a vector v.
     """
-
-    xbatch, ybatch = collect(trainloader, maxsamples=maxsamples)
-    data = input_target_split((xbatch, ybatch))  # sample batch
-
     partial_hvp = create_ggn_mv(
         model_fn=model_fn,
         params=params,
@@ -141,8 +142,10 @@ def ggn_inner(params : PyTree, model_fn : Callable[[PyTree, Array], Array], trai
 
     return inner
 
-def type1_fisher_inner(params : PyTree, model_fn : Callable[[PyTree, Array], Array], trainloader : DataLoader,
-                maxsamples : int = 128, M=30, *args, **kwargs):
+def type1_fisher_inner(params : Params, 
+                        model_fn : ModelFn, 
+                        data : Data,
+                        maxsamples : int = 128, M=30, *args, **kwargs):
     """
     Computes the Type-1 Fisher information inner product function using Monte Carlo label sampling.
 
@@ -156,6 +159,7 @@ def type1_fisher_inner(params : PyTree, model_fn : Callable[[PyTree, Array], Arr
     Returns:
         inner: A function that computes the Type-1 Fisher inner product with a vector v.
     """
+
     def sample_cross_entropy(params, x, y, *, key):
         logits = model_fn(params, x)
         probs = jax.nn.softmax(logits)
@@ -165,14 +169,19 @@ def type1_fisher_inner(params : PyTree, model_fn : Callable[[PyTree, Array], Arr
         log_probs = jax.nn.log_softmax(logits)
         return -(log_probs * ysample).mean()
 
-    xb, yb = collect(trainloader, maxsamples=maxsamples)
+    x, y = data['input'], data['target']
     running_mean = None
     key = jax.random.PRNGKey(0)
 
     # running mean accumulation of gradients
     for i in range(M):
         key, curkey = jax.random.split(key)
-        grads = nnx.vmap(nnx.grad(partial(sample_cross_entropy, key=curkey)), in_axes=(None, 0, 0))(params, xb, yb)  # shape (batch, *param_sizes)
+        grads = nnx.vmap(
+            nnx.grad(
+                partial(sample_cross_entropy, key=curkey)
+            ), in_axes=(None, 0, 0)
+        )(params, x, y)  # shape (batch, *param_sizes)
+
         grads = jax.tree.map(lambda x: (x**2).mean(0), grads)
 
         if running_mean is None:
