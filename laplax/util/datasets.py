@@ -61,9 +61,9 @@ def fashion_mnist(
         trainloader, testloader, len(trainloder), len(testloader)
     """
     if cache_dir is None:
-        cache_dir = Path.expanduser("~/.moml_cache/fashion_mnist")
+        cache_dir = Path("~/.moml_cache/fashionmnist").expanduser()
     else:
-        cache_dir = Path.expanduser(cache_dir)
+        cache_dir = Path(cache_dir).expanduser()
     Path(cache_dir).mkdir(parents=True, exist_ok=True)
     X_path = Path(cache_dir) / "X.npy"
     y_path = Path(cache_dir) / "y.npy"
@@ -155,9 +155,9 @@ def minimnist(
         trainloader, testloader, len(trainloder), len(testloader)
     """
     if cache_dir is None:
-        cache_dir = Path.expanduser("~/.moml_cache/minimnist")
+        cache_dir = Path("~/.moml_cache/minimnist").expanduser()
     else:
-        cache_dir = Path.expanduser(cache_dir)
+        cache_dir = Path(cache_dir).expanduser()
     Path(cache_dir).mkdir(parents=True, exist_ok=True)
     X_path = Path(cache_dir) / "X.npy"
     y_path = Path(cache_dir) / "y.npy"
@@ -203,9 +203,9 @@ def mnist(
         trainloader and testloader
     """
     if cache_dir is None:
-        cache_dir = Path.expanduser("~/.moml_cache/torch_mnist")
+        cache_dir = Path("~/.moml_cache/mnist").expanduser()
     else:
-        cache_dir = Path.expanduser(cache_dir)
+        cache_dir = Path(cache_dir).expanduser()
     Path(cache_dir).mkdir(parents=True, exist_ok=True)
 
     transform = transforms.Compose([
