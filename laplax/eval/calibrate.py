@@ -19,33 +19,16 @@ import jax.numpy as jnp
 import numpy as np
 from loguru import logger
 
-from laplax.eval.metrics import estimate_q
-from laplax.types import Array, Data, Float, PriorArguments
-
-
-# Calibrate prior
-def calibration_metric(**predictions) -> Float:
-    r"""Computes a calibration metric for a given set of predictions.
-
-    The calculated metric is the ratio between the error of the prediction and
-    the variance of the output uncertainty.
-
-    Args:
-        **predictions: Keyword arguments representing the model predictions,
-        typically including mean, variance, and target.
-
-    Returns:
-        The calibration metric value.
-    """
-    return jnp.abs(estimate_q(**predictions) - 1)
+from laplax.eval.metrics import chi_squared_zero
+from laplax.types import Array, Data, Float, Kwargs, PriorArguments
 
 
 def evaluate_for_given_prior_arguments(
     *,
     data: Data,
     set_prob_predictive: Callable,
-    metric: Callable = calibration_metric,
-    **kwargs,
+    metric: Callable = chi_squared_zero,
+    **kwargs: Kwargs,
 ) -> Float:
     """Evaluate the metric for a given set of prior arguments and data.
 
@@ -86,7 +69,7 @@ def evaluate_for_given_prior_arguments(
 def grid_search(
     prior_prec_interval: Array,
     objective: Callable[[PriorArguments], float],
-    patience: int = 5,
+    patience: int | None = None,
     max_iterations: int | None = None,
 ) -> Float:
     """Perform grid search to optimize prior precision.
@@ -106,9 +89,6 @@ def grid_search(
 
     Returns:
         The prior precision value that minimizes the objective function.
-
-    Raises:
-        ValueError: If the objective function returns invalid results.
     """
     results, prior_precs = [], []
     increasing_count = 0
@@ -137,7 +117,7 @@ def grid_search(
         prior_precs.append(prior_prec)
 
         # If we have a previous result, check if the result has increased
-        if previous_result is not None:
+        if patience is not None and previous_result is not None:
             if result > previous_result:
                 increasing_count += 1
                 logger.info(f"Result increased, increasing_count = {increasing_count}")
@@ -166,6 +146,7 @@ def optimize_prior_prec(
     log_prior_prec_min: float = -5.0,
     log_prior_prec_max: float = 6.0,
     grid_size: int = 300,
+    **kwargs: Kwargs,
 ) -> Float:
     """Optimize prior precision using logarithmic grid search.
 
@@ -181,6 +162,7 @@ def optimize_prior_prec(
         log_prior_prec_max: The base-10 logarithm of the maximum prior precision
             value (default: 6.0).
         grid_size: The number of points in the grid interval (default: 300).
+        **kwargs: Additional arguments passed to `grid_search`.
 
     Returns:
         The optimized prior precision value.
@@ -193,6 +175,7 @@ def optimize_prior_prec(
     prior_prec = grid_search(
         prior_prec_interval,
         objective,
+        **kwargs,
     )
 
     return prior_prec

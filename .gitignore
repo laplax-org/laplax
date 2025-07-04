@@ -1,3 +1,16 @@
+# Experiments (ICML Workshop)
+logs/*
+checkpoints/*
+results/*
+wandb/*
+data/*
+
+# Temporary files (documentation)
+*.tmp
+
+# Pytest
+.pytest_cache/
+
 # Development
 local_*
 .ruff_cache
@@ -12,7 +25,8 @@ local_*
 
 # Example notebooks
 *examples/data/*
-!examples/0001_posterior_gp_kernel.ipynb
+!examples/0000_tiny_laplax.ipynb
+!examples/0001_laplax_for_regression.ipynb
 !examples/0002_laplax_on_mnist.ipynb
 
 # Directories

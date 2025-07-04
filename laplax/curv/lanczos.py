@@ -2,34 +2,34 @@ import jax
 import jax.numpy as jnp
 
 from laplax.curv.utils import LowRankTerms, get_matvec
-from laplax.types import Array, Callable, DType, Float, KeyType, Layout
+from laplax.types import Array, Callable, DType, Float, KeyType, Kwargs, Layout
 from laplax.util.flatten import wrap_function
 
 
 def lanczos_iterations(
     matvec: Callable[[Array], Array],
-    b: jax.Array,
+    b: Array,
     *,
     maxiter: int = 20,
     tol: Float = 1e-6,
     full_reorthogonalize: bool = True,
     dtype: DType = jnp.float64,
-    mv_jittable: bool = True,
+    mv_jit: bool = True,
 ) -> tuple[Array, Array, Array]:
-    """Runs Lanczos iterations starting from vector b.
+    """Runs Lanczos iterations starting from vector `b`.
 
     Args:
-        matvec: A callable that computes A @ x.
+        matvec: A callable that computes `A @ x`.
         b: Starting vector.
         maxiter: Number of iterations.
         tol: Tolerance to detect convergence.
         full_reorthogonalize: If True, reorthogonalize at every step.
         dtype: Data type for the Lanczos scalars/vectors.
-        mv_jittable: If True, uses jax.lax.scan for iterations; if False, uses a plain
-          Python for loop. Note that jax.lax.scan can cause problems if, under the hood,
-          the matvec generates a large computational graph (which could be the case if,
-          for example, it's defined as a sum over per-datum curvatures using a
-          dataloader.) In such cases `mv_jittable` should be set to False.
+        mv_jit: If True, uses `jax.lax.scan` for iterations; if False, uses a plain
+            Python for loop. Note that `jax.lax.scan` can cause problems if, under the
+            hood, the matvec generates a large computational graph (which could be the
+            case if, for example, it's defined as a sum over per-datum curvatures using
+            a dataloader.) In such cases `mv_jit` should be set to False.
 
     Returns:
         alpha: 1D array of Lanczos scalars (diagonal of T).
@@ -80,7 +80,7 @@ def lanczos_iterations(
         v_next, alpha, beta, V = iteration_step(v, w, alpha, beta, V, i)
         return (v_next, alpha, beta, V), None
 
-    if mv_jittable:
+    if mv_jit:
         # Use lax.scan implementation (compilable)
         init_carry = (v0, alpha, beta, V)
         indices = jnp.arange(maxiter)
@@ -95,15 +95,18 @@ def lanczos_iterations(
     return alpha, beta, V
 
 
-def construct_tridiagonal(alpha: Array, beta: Array) -> Array:
-    """Constructs the symmetric tridiagonal matrix from Lanczos scalars.
+def construct_tridiagonal(
+    alpha: Array,
+    beta: Array,
+) -> Array:
+    r"""Constructs the symmetric tridiagonal matrix from Lanczos scalars.
 
     Args:
         alpha: Diagonal elements.
         beta: Off-diagonal elements (only beta[:k-1] are used).
 
     Returns:
-        A k x k symmetric tridiagonal matrix T.
+        A $k \times k$ symmetric tridiagonal matrix $T$.
     """
     k = alpha.shape[0]
     T = jnp.zeros((k, k), dtype=alpha.dtype)
@@ -127,7 +130,7 @@ def compute_eigendecomposition(
 
     Returns:
         If compute_vectors is True: (eigvals, ritz_vectors),
-        else: eigvals.
+            else: eigvals.
     """
     T = construct_tridiagonal(alpha, beta)
     if compute_vectors:
@@ -143,39 +146,46 @@ def compute_eigendecomposition(
 def lanczos_lowrank(
     A: Callable[[Array], Array] | Array,
     *,
-    key: KeyType,
+    key: KeyType | None = None,
+    b: Array | None = None,
     layout: Layout | None = None,
     rank: int = 20,
     tol: float = 1e-6,
     mv_dtype: DType | None = None,
     calc_dtype: DType = jnp.float64,
     return_dtype: DType | None = None,
-    mv_jittable: bool = True,
+    mv_jit: bool = True,
     full_reorthogonalize: bool = True,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> LowRankTerms:
     """Compute a low-rank approximation using the Lanczos algorithm.
 
     Args:
-        A: Matrix or callable representing the matrix-vector product.
-        key: PRNG key for random initialization.
-        layout: Dimension of input vector (required if A is callable).
-        rank: Number of leading eigenpairs to compute.
+        A: Matrix or callable representing the matrix-vector product `A @ x`.
+        key: PRNG key for random initialization. Either `key` or `b` must be provided.
+        b: Starting vector. Either `key` or `b` must be provided.
+        layout: Dimension of input vector (required if `A` is callable).
+        rank: Number of leading eigenpairs to compute. Defaults to $R=20$.
         tol: Convergence tolerance for the algorithm.
-        mv_dtype: Data type for matrix-vector products.
+        mv_dtype: Data type for matrix-vector products. Defaults to `float64` if
+            `jax_enable_x64` is enabled, otherwise `float32`.
         calc_dtype: Data type for internal calculations.
         return_dtype: Data type for returned results.
-        mv_jittable: If True, enables JIT compilation of matrix-vector products. Note
-          that this can cause problems if the matrix-vector product generates a large
-          computational graph.
+        mv_jit: If True, enables JIT compilation of matrix-vector products. Note
+            that this can cause problems if the matrix-vector product generates a large
+            computational graph.
         full_reorthogonalize: Whether to perform full reorthogonalization.
         **kwargs: Additional arguments (ignored).
 
     Returns:
         LowRankTerms: A dataclass containing:
-            - U: Eigenvectors as a matrix of shape (size, rank)
-            - S: Eigenvalues as an array of length rank
+
+            - U: Eigenvectors as a matrix of shape $(P, R)$
+            - S: Eigenvalues as an array of length $(R,)$
             - scalar: Scalar factor, initialized to 0.0
+
+    Raises:
+        ValueError: If neither key nor b is provided.
     """
     del kwargs
 
@@ -191,7 +201,7 @@ def lanczos_lowrank(
     jax.config.update("jax_enable_x64", calc_dtype == jnp.float64)
 
     # Obtain a uniform matrix-vector multiplication function.
-    matvec, size = get_matvec(A, layout=layout, jit=mv_jittable)
+    matvec, size = get_matvec(A, layout=layout, jit=mv_jit)
 
     # Wrap to_dtype around mv if necessary.
     if mv_dtype != calc_dtype:
@@ -201,8 +211,14 @@ def lanczos_lowrank(
             output_fn=lambda x: jnp.asarray(x, dtype=calc_dtype),
         )
 
-    # Initialize random starting vector.
-    b = jax.random.normal(key, (size,), dtype=calc_dtype)
+    # Initialize starting vector.
+    if b is not None:
+        b = jnp.asarray(b, dtype=calc_dtype)
+    elif key is not None:
+        b = jax.random.normal(key, (size,), dtype=calc_dtype)
+    else:
+        msg = "Either key or b must be provided"
+        raise ValueError(msg)
 
     # Run Lanczos iterations.
     alpha, beta, V = lanczos_iterations(
@@ -212,7 +228,7 @@ def lanczos_lowrank(
         tol=tol,
         full_reorthogonalize=full_reorthogonalize,
         dtype=calc_dtype,
-        mv_jittable=mv_jittable,
+        mv_jit=mv_jit,
     )
     eigvals, eigvecs = compute_eigendecomposition(alpha, beta, V, compute_vectors=True)
 

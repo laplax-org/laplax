@@ -1,5 +1,4 @@
-from collections.abc import Iterator
-
+import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import random
@@ -35,54 +34,86 @@ class DataLoader:
         return self.X[batch_indices], self.y[batch_indices]
 
 
+DEFAULT_INTERVALS = [
+    (0, 2),
+    (4, 5),
+    (6, 8),
+]
+
+
 # Function to create the sinusoid dataset
 def get_sinusoid_example(
-    num_data: int = 150,
+    num_train_data: int = 150,
+    num_valid_data: int = 50,
+    num_test_data: int = 100,
     sigma_noise: float = 0.3,
-    batch_size: int = 150,
+    sinus_factor: float = 1.0,
+    intervals: list[tuple[float, float]] = DEFAULT_INTERVALS,
+    test_interval: tuple[float, float] = (0.0, 8.0),
     rng_key=None,
 ) -> tuple[
-    jnp.ndarray, jnp.ndarray, Iterator[tuple[jnp.ndarray, jnp.ndarray]], jnp.ndarray
+    jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray
 ]:
-    if rng_key is None:
-        rng_key = random.PRNGKey(0)
     """Generate a sinusoid dataset.
 
     Args:
-        num_data: Number of data points.
+        num_train_data: Number of training data points.
+        num_valid_data: Number of validation data points.
+        num_test_data: Number of test data points.
         sigma_noise: Standard deviation of the noise.
-        batch_size: Batch size for the data loader.
+        sinus_factor: Factor to multiply the sinus input with.
+        intervals: List of (min, max) tuples defining intervals for train/valid data.
+        test_interval: (min, max) tuple defining interval for test data.
         rng_key: Random number generator key.
 
     Returns:
         X_train: Training input data.
         y_train: Training target data.
-        train_loader: Data loader for training data.
-        X_test: Testing input data.
+        X_valid: Validation input data.
+        y_valid: Validation target data.
+        X_test: Test input data.
+        y_test: Test target data.
     """
+    if rng_key is None:
+        rng_key = random.key(0)
+
     # Split RNG key for reproducibility
-    rng_key, rng_noise = random.split(rng_key)
+    (
+        rng_key,
+        rng_x_train,
+        rng_x_valid,
+        rng_noise_train,
+        rng_noise_valid,
+        rng_noise_test,
+    ) = random.split(rng_key, 6)
+
+    tuples_as_array = jnp.asarray(intervals)
+
+    def f(key):
+        key1, key2 = jax.random.split(key, 2)
+        interval = jax.random.choice(key1, tuples_as_array, axis=0)
+        x = jax.random.uniform(key2, minval=interval[0], maxval=interval[1])
+        return x
 
     # Generate random training data
-    X_train = (
-        random.uniform(rng_key, (num_data, 1)) * 8
-    )  # X_train values between 0 and 8
-    noise = random.normal(rng_noise, X_train.shape) * sigma_noise
-    y_train = jnp.sin(X_train) + noise
+    X_train = (jax.vmap(f)(jax.random.split(rng_x_train, num_train_data))).reshape(
+        -1, 1
+    )
+    noise = random.normal(rng_noise_train, X_train.shape) * sigma_noise
+    y_train = jnp.sin(X_train * sinus_factor) + noise
 
-    # Create a simple data loader function (generator)
-    # def _data_loader(X, y, batch_size):
-    #     dataset_size = X.shape[0]
-    #     indices = np.arange(dataset_size)
-    #     np.random.shuffle(indices)
-    #     for start_idx in range(0, dataset_size, batch_size):
-    #         batch_indices = indices[start_idx : start_idx + batch_size]
-    #         yield X[batch_indices], y[batch_indices]
+    # Generate calibration data
+    X_valid = (jax.vmap(f)(jax.random.split(rng_x_valid, num_valid_data))).reshape(
+        -1, 1
+    )
+    noise = random.normal(rng_noise_valid, X_valid.shape) * sigma_noise
+    y_valid = jnp.sin(X_valid * sinus_factor) + noise
 
     # Generate testing data
-    X_test = jnp.linspace(-5, 13, 500).reshape(-1, 1)
+    X_test = jnp.linspace(test_interval[0], test_interval[1], num_test_data).reshape(
+        -1, 1
+    )
+    noise = random.normal(rng_noise_test, X_test.shape) * sigma_noise
+    y_test = jnp.sin(X_test * sinus_factor) + noise
 
-    # Create the training data loader
-    train_loader = DataLoader(X_train, y_train, batch_size)
-
-    return X_train, y_train, train_loader, X_test
+    return X_train, y_train, X_valid, y_valid, X_test, y_test

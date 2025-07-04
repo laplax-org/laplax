@@ -10,10 +10,10 @@ from laplax.curv.cov import create_posterior_fn
 from laplax.curv.ggn import create_ggn_mv
 from laplax.enums import CurvApprox
 from laplax.eval.calibrate import (
-    calibration_metric,
     evaluate_for_given_prior_arguments,
     optimize_prior_prec,
 )
+from laplax.eval.metrics import chi_squared_zero
 from laplax.eval.pushforward import set_lin_pushforward
 
 from .cases.regression import case_regression
@@ -60,7 +60,7 @@ def test_lin_pushforward(curv_op, task):
             prior_arguments=prior_arguments,
             data=data,
             set_prob_predictive=set_prob_predictive,
-            metric=calibration_metric,
+            calibration_metric=chi_squared_zero,
         )
 
     # Optimize

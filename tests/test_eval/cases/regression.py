@@ -155,7 +155,11 @@ class EquinoxRegressionTask(BaseRegressionTask):
 
 
 def create_task(task_class, in_channels, hidden_channels, out_channels, seed):
-    """Factory function to create regression tasks."""
+    """Factory function to create regression tasks.
+
+    Returns:
+        The initialized task.
+    """
     return task_class(
         in_channels=in_channels,
         hidden_channels=hidden_channels,
@@ -173,6 +177,10 @@ def create_task(task_class, in_channels, hidden_channels, out_channels, seed):
 def case_regression(
     task_class, in_channels: int, hidden_channels: int, out_channels: int
 ):
-    """Test regression tasks with multiple frameworks and parameter combinations."""
+    """Test regression tasks with multiple frameworks and parameter combinations.
+
+    Returns:
+        The initialized task.
+    """
     seed = 42
     return task_class(in_channels, hidden_channels, out_channels, seed)

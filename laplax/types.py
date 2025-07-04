@@ -1,10 +1,12 @@
 """All types defined in one place."""
 
 from collections.abc import Callable, Iterable, Mapping  # noqa: F401
-from typing import Any  # noqa: F401
+from typing import Any
 
 import jax
 from jaxtyping import Array, Float, Int, Num, PRNGKeyArray, PyTree  # noqa: F401
+
+from laplax.enums import CurvApprox
 
 # Basic JAX types
 KeyType = PRNGKeyArray
@@ -20,7 +22,7 @@ FlatParams = Num[Array, "P"]
 
 # Parameter and model types
 Params = PyTree[Num[Array, "..."]]
-ModelFn = Callable[..., PredArray]  # [InputArray, Params]
+ModelFn = Callable[..., Params]  # [InputArray, Params]
 CurvatureMV = Callable[[Params], Params]
 
 # Data structures
@@ -38,3 +40,9 @@ DistState = dict[str, ...]  # type: ignore  # noqa: PGH003
 # - VJPType: Callable[[InputArray, PredArray], Params]
 # - Callable[[int], Params]
 # - None
+
+# Curvature types
+CurvatureKeyType = CurvApprox | str | None
+
+# Utility types
+Kwargs = Any

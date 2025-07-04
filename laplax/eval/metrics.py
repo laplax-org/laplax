@@ -1,16 +1,32 @@
-"""Regression and classification metrics for evaluating uncertainty quantification.
+r"""Regression and Classification Metrics for Uncertainty Quantification.
 
 This module provides a comprehensive suite of classification and regression metrics for
 evaluating probabilistic models.
 
-Key features include:
-- **Classification Metrics**: Accuracy, top-k accuracy, cross-entropy, and
-    multiclass Brier score.
-- **Regression Metrics**: Root mean squared error (RMSE), q-value, and negative
-    log-likelihood (NLL) for Gaussian distributions.
-- **Bin Metrics**: Confidence and correctness metrics binned by confidence intervals.
+## Key Features
 
-The module leverages JAX for efficient numerical computation and supports flexible
+### Classification Metrics
+
+- **Accuracy**
+- **Top-k Accuracy**
+- **Cross-Entropy**
+- **Multiclass Brier Score**
+- **Expected Calibration Error (ECE)**
+- **Maximum Calibration Error (MCE)**
+
+### Regression Metrics
+
+- **Root Mean Squared Error (RMSE)**
+- **Chi-squared**
+- **Negative Log-Likelihood (NLL)** for Gaussian distributions
+
+### Bin Metrics
+
+- **Confidence and Correctness Metrics** binned by confidence intervals
+
+---
+
+The module leverages **JAX** for efficient numerical computation and supports flexible
 evaluation for diverse model outputs.
 """
 
@@ -22,14 +38,14 @@ from jax import lax
 
 from laplax.enums import CalibrationErrorNorm
 from laplax.eval.utils import apply_fns
-from laplax.types import Array, Float
+from laplax.types import Array, Float, Kwargs
 
 # --------------------------------------------------------------------------------
 # Classification metrics
 # --------------------------------------------------------------------------------
 
 
-def correctness(pred: Array, target: Array, **kwargs) -> Array:
+def correctness(pred: Array, target: Array, **kwargs: Kwargs) -> Array:
     """Determine if each target label matches the top-1 prediction.
 
     Computes a binary indicator for whether the predicted class matches the
@@ -44,7 +60,7 @@ def correctness(pred: Array, target: Array, **kwargs) -> Array:
 
     Returns:
         Boolean array of shape `(batch_size,)` indicating correctness
-        for each prediction.
+            for each prediction.
     """
     del kwargs
 
@@ -57,7 +73,7 @@ def correctness(pred: Array, target: Array, **kwargs) -> Array:
 
 
 def accuracy(
-    pred: Array, target: Array, top_k: tuple[int] = (1,), **kwargs
+    pred: Array, target: Array, top_k: tuple[int] = (1,), **kwargs: Kwargs
 ) -> list[Array]:
     """Compute top-k accuracy for specified values of k.
 
@@ -74,7 +90,7 @@ def accuracy(
 
     Returns:
         A list of accuracies corresponding to each k in `top_k`,
-        expressed as percentages.
+            expressed as percentages.
     """
     del kwargs
     max_k = min(max(top_k), pred.shape[1])
@@ -96,7 +112,9 @@ def accuracy(
     ]
 
 
-def cross_entropy(prob_p: Array, prob_q: Array, axis: int = -1, **kwargs) -> Array:
+def cross_entropy(
+    prob_p: Array, prob_q: Array, axis: int = -1, **kwargs: Kwargs
+) -> Array:
     """Compute cross-entropy between two probability distributions.
 
     This function calculates the cross-entropy of `prob_p` relative to `prob_q`,
@@ -117,7 +135,7 @@ def cross_entropy(prob_p: Array, prob_q: Array, axis: int = -1, **kwargs) -> Arr
     return -p_log_q.sum(axis=axis)
 
 
-def multiclass_brier(prob: Array, target: Array, **kwargs) -> Array:
+def multiclass_brier(prob: Array, target: Array, **kwargs: Kwargs) -> Array:
     """Compute the multiclass Brier score.
 
     The Brier score is a measure of the accuracy of probabilistic predictions.
@@ -144,7 +162,7 @@ def multiclass_brier(prob: Array, target: Array, **kwargs) -> Array:
 
 
 def calculate_bin_metrics(
-    confidence: Array, correctness: Array, num_bins: int = 15, **kwargs
+    confidence: Array, correctness: Array, num_bins: int = 15, **kwargs: Kwargs
 ) -> tuple[Array, Array, Array]:
     """Calculate bin-wise metrics for confidence and correctness.
 
@@ -159,7 +177,8 @@ def calculate_bin_metrics(
         **kwargs: Additional arguments (ignored).
 
     Returns:
-        Tuple of arrays:
+        Tuple of arrays containing:
+
             - Bin proportions: Proportion of samples in each bin.
             - Bin confidences: Average confidence for each bin.
             - Bin accuracies: Average accuracy for each bin.
@@ -191,7 +210,7 @@ def calibration_error(
     correctness: jax.Array,
     num_bins: int,
     norm: CalibrationErrorNorm,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> jax.Array:
     """Compute the expected/maximum calibration error.
 
@@ -205,7 +224,6 @@ def calibration_error(
 
     Returns:
         The ECE/MCE.
-
     """
     del kwargs
     bin_proportions, bin_confidences, bin_accuracies = calculate_bin_metrics(
@@ -223,7 +241,7 @@ def calibration_error(
 
 
 def expected_calibration_error(
-    confidence: jax.Array, correctness: jax.Array, num_bins: int, **kwargs
+    confidence: jax.Array, correctness: jax.Array, num_bins: int, **kwargs: Kwargs
 ) -> jax.Array:
     """Compute the expected calibration error.
 
@@ -248,7 +266,7 @@ def expected_calibration_error(
 
 
 def maximum_calibration_error(
-    confidence: jax.Array, correctness: jax.Array, num_bins: int, **kwargs
+    confidence: jax.Array, correctness: jax.Array, num_bins: int, **kwargs: Kwargs
 ) -> jax.Array:
     """Compute the maximum calibration error.
 
@@ -278,38 +296,65 @@ def maximum_calibration_error(
 # --------------------------------------------------------------------------------
 
 
-def estimate_q(
+def chi_squared(
     pred_mean: Array,
     pred_std: Array,
     target: Array,
-    **kwargs,
+    *,
+    averaged: bool = True,
+    **kwargs: Kwargs,
 ) -> Float:
     r"""Estimate the q-value for predictions.
 
-    The q-value is a measure of the squared error normalized by the predicted
+    The $\chi^2$-value is a measure of the squared error normalized by the predicted
     variance.
 
     Mathematically:
-    $q = \frac{1}{n} \sum_{i=1}^n \frac{(y_i - \hat{y}_i)^2}{\sigma_i^2}$.
+
+    $$
+    \chi^2_{\text{Avg}}
+    = \frac{1}{n} \sum_{i=1}^n \frac{(y_i - \hat{y}_i)^2}{\sigma_i^2}.
+    $$
 
     Args:
         pred_mean: Array of predicted means.
         pred_std: Array of predicted standard deviations.
         target: Array of ground truth labels.
+        averaged: Whether to return the mean or sum of the q-values.
         **kwargs: Additional arguments (ignored).
 
     Returns:
         The estimated q-value.
     """
     del kwargs
-    return jnp.mean(jnp.power(pred_mean - target, 2) / jnp.power(pred_std, 2))
+    val = jnp.power(pred_mean - target, 2) / jnp.power(pred_std, 2)
+    return jnp.mean(val) if averaged else jnp.sum(val)
 
 
-def estimate_rmse(pred_mean: Array, target: Array, **kwargs) -> Float:
+def chi_squared_zero(**predictions: Kwargs) -> Float:
+    r"""Computes a calibration metric for a given set of predictions.
+
+    The calculated metric is the ratio between the error of the prediction and
+    the variance of the output uncertainty.
+
+    Args:
+        **predictions: Keyword arguments representing the model predictions,
+            typically including mean, variance, and target.
+
+    Returns:
+        The calibration metric value.
+    """
+    return jnp.abs(chi_squared(**predictions) - 1)
+
+
+def estimate_rmse(pred_mean: Array, target: Array, **kwargs: Kwargs) -> Float:
     r"""Estimate the root mean squared error (RMSE) for predictions.
 
     Mathematically:
-    $\text{RMSE} = \sqrt{\frac{1}{n} \sum_{i=1}^n (y_i - \hat{y}_i)^2}$.
+
+    $$
+    \text{RMSE} = \sqrt{\frac{1}{n} \sum_{i=1}^n (y_i - \hat{y}_i)^2}.
+    $$
 
     Args:
         pred_mean: Array of predicted means.
@@ -329,7 +374,7 @@ def crps_gaussian(
     target: Array,
     *,
     scaled: bool = True,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Float:
     """The negatively oriented continuous ranked probability score for Gaussians.
 
@@ -344,6 +389,9 @@ def crps_gaussian(
 
     Returns:
         The crps for the heldout set.
+
+    Raises:
+        ValueError: pred_mean, pred_std, and target have incompatible shapes.
     """
     del kwargs
 
@@ -375,7 +423,7 @@ def nll_gaussian(
     target: Array,
     *,
     scaled: bool = True,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Float:
     r"""Compute the negative log-likelihood (NLL) for a Gaussian distribution.
 
@@ -384,8 +432,11 @@ def nll_gaussian(
     (standard deviation).
 
     Mathematically:
-    $\text{NLL} = - \sum_{i=1}^n \log \left( \frac{1}{\sqrt{2\pi \sigma_i^2}}
-    \exp \left( -\frac{(y_i - \hat{y}_i)^2}{2\sigma_i^2} \right) \right)$.
+
+    $$
+    \text{NLL} = - \sum_{i=1}^n \log \left( \frac{1}{\sqrt{2\pi \sigma_i^2}}
+    \exp \left( -\frac{(y_i - \hat{y}_i)^2}{2\sigma_i^2} \right) \right).
+    $$
 
     Args:
         pred_mean: Array of predicted means for the dataset.
@@ -396,6 +447,9 @@ def nll_gaussian(
 
     Returns:
         The computed NLL value.
+
+    Raises:
+        ValueError: pred_mean, pred_std, and target have incompatible shapes.
     """
     del kwargs
 
@@ -420,7 +474,7 @@ def nll_gaussian(
 
 DEFAULT_REGRESSION_METRICS_DICT = {
     "rmse": estimate_rmse,
-    "q": estimate_q,
+    "chi^2": chi_squared,
     "nll": nll_gaussian,
     "crps": crps_gaussian,
 }
@@ -428,10 +482,10 @@ DEFAULT_REGRESSION_METRICS_DICT = {
 DEFAULT_REGRESSION_METRICS = [
     apply_fns(
         estimate_rmse,
-        estimate_q,
+        chi_squared,
         nll_gaussian,
         crps_gaussian,
-        names=["rmse", "q", "nll", "crps"],
+        names=["rmse", "chi^2", "nll", "crps"],
         pred_mean="pred_mean",
         pred_std="pred_std",
         target="target",
