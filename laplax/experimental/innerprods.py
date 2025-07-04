@@ -20,8 +20,7 @@ from laplax.types import (
 )
 
 def kfac_inner_fn(params : PyTree, model_fn : ModelFn, data : Data, 
-                  maxsamples : int = 128, 
-                  loss_fn : Union[LossFn, Callable, Literal['cross_entropy', 'mse']] = 'cross_entropy',
+                  loss_fn : LossFn = LossFn.CROSS_ENTROPY,
                   *args, **kwargs) -> Callable[[Array], Array]:
     """
         Returns a function that computes the KFAC inner product function for a model.
@@ -41,11 +40,10 @@ def kfac_inner_fn(params : PyTree, model_fn : ModelFn, data : Data,
             "Current assumption is that the pytree structure puts bias \
                 before weights AND your model only consists of Linear Layers.")
     
-    if loss_fn != LossFn.CROSS_ENTROPY:
+    if loss_fn.value != LossFn.CROSS_ENTROPY.value: # python 3.11 doesn't like enum equalities
         raise NotImplementedError("Only cross_entropy loss is supported for now.")
         
-    x, y = data['input'], data['target']
-    As, Bs = kfac_blocks(params=params, model_fn=model_fn, x=x, y=y)
+    As, Bs = kfac_blocks(params=params, model_fn=model_fn, data=data, loss_fn=loss_fn)
 
     def kfac_vtmv(v, As=As, Bs=Bs):
         leaves = jax.tree_util.tree_leaves(v)
@@ -60,9 +58,8 @@ def kfac_inner_fn(params : PyTree, model_fn : ModelFn, data : Data,
         return vtFv
     return kfac_vtmv
 
-def emp_fisher_inner(params : Params, model_fn : ModelFn, data : Data, 
-                     maxsamples : int = 128, 
-                     loss_fn : Union[LossFn, Callable, Literal['cross_entropy', 'mse']] = 'cross_entropy',
+def emp_fisher_inner(params : Params, model_fn : ModelFn, data : Data,
+                     loss_fn : LossFn = LossFn.CROSS_ENTROPY,
                      *args, **kwargs):
     """
     Computes the empirical Fisher information inner product function for a model.
@@ -78,7 +75,7 @@ def emp_fisher_inner(params : Params, model_fn : ModelFn, data : Data,
         inner: A function that computes the empirical Fisher inner product with a vector v.
     """
     
-    if loss_fn != LossFn.CROSS_ENTROPY:
+    if loss_fn.value != LossFn.CROSS_ENTROPY.value: # python 3.11 doesn't like enum equalities
         raise NotImplementedError("Only cross_entropy loss is supported for now.")
         
     x, y = data['input'], data['target']
@@ -113,8 +110,8 @@ def unscaled_dot_product(*args, **kwargs):
     return inner
 
 def ggn_inner(params : Params, model_fn : ModelFn, data : Data, 
-            numsamples_train : int, maxsamples : int = 128,
-            loss_fn : Union[LossFn, Callable, Literal['cross_entropy', 'mse']] = 'cross_entropy',
+            numsamples_train : int,
+            loss_fn : LossFn = LossFn.CROSS_ENTROPY,
             *args, **kwargs):
     """
     Returns a function that computes the Generalized Gauss-Newton (GGN) inner product for a model.
@@ -143,9 +140,9 @@ def ggn_inner(params : Params, model_fn : ModelFn, data : Data,
     return inner
 
 def type1_fisher_inner(params : Params, 
-                        model_fn : ModelFn, 
-                        data : Data,
-                        maxsamples : int = 128, M=30, *args, **kwargs):
+                        model_fn : ModelFn,
+                        data : Data, 
+                        loss_fn : LossFn = LossFn.CROSS_ENTROPY,M=30, *args, **kwargs):
     """
     Computes the Type-1 Fisher information inner product function using Monte Carlo label sampling.
 
@@ -159,6 +156,9 @@ def type1_fisher_inner(params : Params,
     Returns:
         inner: A function that computes the Type-1 Fisher inner product with a vector v.
     """
+    if loss_fn.value != LossFn.CROSS_ENTROPY.value: # python 3.11 doesn't like enum equalities
+        raise NotImplementedError("Only cross_entropy loss is supported for now.")
+        
 
     def sample_cross_entropy(params, x, y, *, key):
         logits = model_fn(params, x)

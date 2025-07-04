@@ -22,7 +22,7 @@ class nnx_mlp(nnx.Module):
         x = self.linear3(x)
         return x
     
-def test_emp_fisher_equiv(self, plot=False):
+def test_emp_fisher_equiv(plot=False):
     """
         This tests for equivalence between the empirical fisher
         and KFAC-expand-empirical for a single training example as per
@@ -55,6 +55,12 @@ def test_emp_fisher_equiv(self, plot=False):
 
     # has to be one sample, otherwise equivalance wont hold
     x, y = collect(trainloader, maxsamples=1)
+    data = {'input' : x, 'target' : y}
+    graph, params = nnx.split(model)
+
+    def model_fn(params, x, graph=graph):
+        return nnx.merge(graph, params)(x)
+    
     fisher_grads = jax.tree.leaves(
         nnx.grad(ce_loss)(model, x, y)
     )
@@ -62,7 +68,7 @@ def test_emp_fisher_equiv(self, plot=False):
         lambda arr: arr.reshape(-1), fisher_grads
     ))
     FIM = jnp.outer(flat_fisher_grads, flat_fisher_grads)
-    As, Bs = kfac_blocks(model, x, y)
+    As, Bs = kfac_blocks(params=params, model_fn=model_fn, data=data)
 
     idx = 0
     _, axes = plt.subplots(nrows=len(As), ncols=2)
@@ -75,8 +81,8 @@ def test_emp_fisher_equiv(self, plot=False):
 
         # Compute correlation coefficient between flattened blocks
         block_flat = block.flatten()
-        ggn_flat = true_block.flatten()
-        corr = jnp.corrcoef(block_flat, ggn_flat)[0, 1]
+        true_flat = true_block.flatten()
+        corr = jnp.corrcoef(block_flat, true_flat)[0, 1]
         assert jnp.isclose(corr, 1.0, atol=1e-2), f"Block correlation {corr} not close to 1"
         idx += i
 

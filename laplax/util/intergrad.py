@@ -110,7 +110,7 @@ def perturb(jaxpr : Jaxpr, consts : List[Any], perturbations : List[Array], *arg
     return safe_map(read, jaxpr.outvars)[0]
 
 
-def flat_inject(jaxpr : Jaxpr, consts : List[Any], tagging_rule : Callable | None = None, *args) \
+def flat_inject(jaxpr : Jaxpr, consts : List[Any], tagging_rule : Callable | None, *args) \
     -> Tuple[List[Array], List[Array]]:
     """
         Injects perturbations into the Jaxpr and collects intermediate activations and gradients.
@@ -201,6 +201,6 @@ def intergrad(fun : Callable, tagging_rule : Callable | None = None) -> Callable
         flatargs = list(
             chain.from_iterable([jax.tree.flatten(arg)[0] for arg in args])
         )
-        out = flat_inject(closed_jaxpr.jaxpr, closed_jaxpr.literals, tagging_rule=None, *flatargs)
+        out = flat_inject(closed_jaxpr.jaxpr, closed_jaxpr.literals, None, *flatargs)
         return out
     return wrapped

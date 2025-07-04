@@ -18,7 +18,7 @@ from laplax.types import (
 def kfac_blocks(params : Params, model_fn : ModelFn, data : Data, 
                 fisher_type : Literal['type1', 'empirical'] = 'empirical', 
                 fisher_kwargs : Dict[str, Any] = {},
-                loss_fn : Union[Callable, LossFn, Literal['cross_entropy', 'squared_error']] = 'cross_entropy') \
+                loss_fn : Union[Callable, LossFn] = LossFn.CROSS_ENTROPY) \
       -> Tuple[List[Array], List[Array]]:
     """
         Computes the KFAC blocks.
@@ -37,19 +37,19 @@ def kfac_blocks(params : Params, model_fn : ModelFn, data : Data,
                 - A list of activation matrices (A) for each layer.
                 - A list of gradient matrices (B) for each layer.
     """
-    if loss_fn != LossFn.CROSS_ENTROPY:
+    if loss_fn.value != LossFn.CROSS_ENTROPY.value: # python 3.11 doesn't like enum equalities
         raise NotImplementedError("Only cross_entropy loss is supported for now.")
-    
-    x, y = data['inputs'], data['targets']
+        
     def celoss(params, x, y): 
         return -(y * jax.nn.log_softmax(model_fn(params, x))).mean()
+    x, y = data['input'], data['target']
     
     acts_and_grads = {
         'empirical': emp_fisher_grads,
         'type1': type_1_fisher_grads
     }[fisher_type]
 
-    activations, grads = acts_and_grads(params=params, model_fn=model_fn, xs=x, ys=y, loss_fn=celoss, **fisher_kwargs)
+    activations, grads = acts_and_grads(params=params, model_fn=model_fn, data=data, loss_fn=celoss, **fisher_kwargs)
     activations, grads =    jax.tree.map(lambda x: jnp.atleast_2d(x), activations), \
                             jax.tree.map(lambda x: jnp.atleast_2d(x), grads)
     As, Bs = [], []
