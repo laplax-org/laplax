@@ -103,6 +103,8 @@ def type_1_fisher_grads(params : PyTree, model_fn : Callable, xs, ys, loss_fn, n
         \hat y samples from the output distribution. We continue, by collecting
         `num_samples` gradients from intergrad(model, x, \hat y).
     """
+    raise NotImplementedError("Type-1 Fisher gradients aren't sufficiently tested yet.")
+
     intergrad_jit = jax.jit(jax.vmap(intergrad(loss_fn, tagging_rule=None), 
                                   in_axes=(None, 0, 0)))
     key = jr.PRNGKey(0)
