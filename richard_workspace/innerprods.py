@@ -4,8 +4,10 @@ import jax.numpy as jnp
 from flax import nnx
 from richard_workspace.dataloading import collect
 
+
 from functools import partial
 from temp.intergrad import intergrad
+from temp.kfac import kfac_blocks
 
 from laplax.curv import create_ggn_mv
 from laplax.util.loader import input_target_split
@@ -13,40 +15,20 @@ from laplax.util.tree import sub, dot, mul, add
 from typing import *
 
 def kfac_inner_fn(model, trainloader, maxsamples=128, *args, **kwargs):
-    """
-        rough KFAC impl 
-    """
-    _graph, _params = nnx.split(model)
-    def model_fn(p, x):
-        model = nnx.merge(_graph, p)
-        return model(x)
-    def celoss(params, x, y):
-        logits = model_fn(params, x)
-        loss = -(y * jax.nn.log_softmax(logits)).mean()
-        return loss
     x, y = collect(trainloader, maxsamples=maxsamples)
-    
-    intergrad_mapped = jax.vmap(jax.jit(intergrad(celoss, tagging_rule=None)), in_axes=(None, 0, 0))
-    activations, grads = intergrad_mapped(_params, x, y)
-    activations = [x] + activations
-    activations = [jnp.concatenate([arr, jnp.ones((arr.shape[0], 1))], axis=-1) for arr in activations]
-    def reduce_outers(arrs, factor):
-        return jnp.sum(jax.vmap(lambda x: jnp.outer(x, x))(arrs), axis=0) * factor
-    R = 1 / (maxsamples * y.shape[-1])
-    As = [reduce_outers(arrs, factor=R) for arrs in activations]
-    Bs = [reduce_outers(arrs, factor=1/arrs.shape[0]) for arrs in grads]
-    blocks = jax.lax.stop_gradient([jnp.kron(a, b) for a, b in zip(As, Bs)])
-    
-    def kfac_inner(v, blocks=blocks):
-        arrs = jax.tree.leaves(v)
-        weights, biases = arrs[1::2], arrs[0::2]
-        vsplit = [jnp.concatenate([w.reshape(-1), b]) for w, b in zip(weights, biases)]
-        Bv = [bi @ vi for bi, vi in zip(blocks, vsplit)]
-        vtBv = sum([jnp.dot(vv, bv) for vv, bv in zip(vsplit, Bv)])
-        return vtBv
-    
-    del activations, grads, As, Bs
-    return kfac_inner
+    As, Bs = kfac_blocks(model, x, y)
+
+    def kfac_quadratic(v, As=As, Bs=Bs):
+        leaves = jax.tree_util.tree_leaves(v)
+        vtFv = 0.0
+        ws, bs = leaves[1::2], leaves[0::2]
+        for A_fac, B_fac, w, b in zip(As, Bs, ws, bs):
+
+            # fuse together according to structure of nnx pytree -> first bias, then weights
+            W_ext = jnp.concatenate([b[jnp.newaxis, :], w], axis=0)
+            vtFv += jnp.sum(W_ext * (A_fac @ W_ext @ B_fac))
+        return vtFv
+    return kfac_quadratic
 
 def emp_fisher_inner(model, trainloader, maxsamples, *args, **kwargs):
     """
@@ -69,7 +51,7 @@ def emp_fisher_inner(model, trainloader, maxsamples, *args, **kwargs):
     grads = nnx.grad(cross_entropy)(model, xb, yb)
     sqgrads = jax.tree.map(lambda x: jnp.mean(x**2, axis=0), grads)  # square and mean
 
-    def inner(v):
+    def inner(v, sqgrads=sqgrads):
         return dot(v, jax.tree.map(lambda x, y: x * y, v, sqgrads))
 
     return inner
@@ -118,7 +100,7 @@ def ggn_inner(model, trainloader, maxsamples, numsamples_train, *args, **kwargs)
         loss_fn='cross_entropy',
         num_total_samples=numsamples_train
     )
-    def inner(v):
+    def inner(v, partial_hvp=partial_hvp):
         return dot(v, partial_hvp(v))
 
     return inner
@@ -161,7 +143,7 @@ def type1_fisher_inner(model, trainloader, maxsamples, M=30, *args, **kwargs):
         else:
             running_mean = add(running_mean, mul(1/(i + 1), sub(grads, running_mean)))
 
-    def inner(v):
+    def inner(v, running_mean=running_mean):
         return dot(v, jax.tree.map(lambda x, y: x * y, v, running_mean))
 
     return inner

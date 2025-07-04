@@ -40,6 +40,8 @@ class DataLoader:
     
     def __len__(self):
         return (self.num_samples + self.batch_size - 1) // self.batch_size
+    
+    
 
 def fashion_mnist(batch_size=64, random_state=0, cache_dir=None) -> Tuple[DataLoader, DataLoader, int, int]:
     if cache_dir is None:
