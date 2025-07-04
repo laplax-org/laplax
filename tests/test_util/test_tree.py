@@ -4,7 +4,7 @@ import pytest_cases
 
 from laplax.types import KeyType, PyTree
 from laplax.util.flatten import create_pytree_flattener
-from laplax.util.tree import add, allclose, sub
+from laplax.util.tree import add, allclose, dot, sub
 
 TreeTestCase = tuple[PyTree, jax.Array]
 
@@ -50,6 +50,12 @@ def test_sub(test_case):
     (tree1, vector1), (tree2, vector2) = test_case
     flatten, _ = create_pytree_flattener(tree1)
     allclose(flatten(sub(tree1, tree2)), vector1 - vector2)
+
+
+@pytest_cases.parametrize_with_cases("test_case", cases=[case_two_vector_tree])
+def test_dot(test_case):
+    (tree1, vector1), (tree2, vector2) = test_case
+    allclose(dot(tree1, tree2), jax.numpy.dot(vector1, vector2))
 
 
 # TODO(2bys): finish

@@ -100,6 +100,22 @@ def sqrt(tree: PyTree) -> PyTree:
     return jax.tree.map(jnp.sqrt, tree)
 
 
+def dot(tree1: PyTree, tree2: PyTree) -> float:
+    """Computes the dot product between two pytrees.
+
+    Args:
+        tree1: A PyTree
+        tree2: Another PyTree
+
+    Returns:
+        A float, the result of the dot-product of the leaves of both trees
+    """
+    return sum(
+        (a * b).sum()
+        for a, b in zip(jax.tree.leaves(tree1), jax.tree.leaves(tree2), strict=False)
+    )
+
+
 def invert(tree: PyTree) -> PyTree:
     """Invert all elements of a PyTree.
 
