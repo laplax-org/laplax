@@ -131,7 +131,7 @@ def _validate_and_get_transform(batch: Data | Any) -> Callable[[Any], Data]:
     Raises:
         ValueError: If batch is not a tuple/dict or misses required keys.
     """
-    if isinstance(batch, (tuple, list)):
+    if isinstance(batch, tuple | list):
         if len(batch) != 2:
             msg = "Tuple batches must be `(input, target)` - received len != 2."
             raise ValueError(msg)
@@ -148,7 +148,7 @@ def _validate_and_get_transform(batch: Data | Any) -> Callable[[Any], Data]:
 
 
 def _is_data_loader(data: Data | tuple | Iterable):
-    return isinstance(data, Iterable) and not isinstance(data, (tuple, dict, list))
+    return isinstance(data, Iterable) and not isinstance(data, tuple | dict | list)
 
 
 def _maybe_wrap_loader_or_batch(
@@ -175,7 +175,7 @@ def _maybe_wrap_loader_or_batch(
         else transform
     )
 
-    if isinstance(data, (tuple, dict)):
+    if isinstance(data, tuple | dict):
         logger.debug("Using *single batch* curvature evaluation.")
         return partial(mv_fn, data=transform(data))
 
@@ -536,7 +536,7 @@ def _resolve_metrics(
                 names=["nll_gaussian"],
             ),
         ]
-    if isinstance(metrics, (list, tuple)):
+    if isinstance(metrics, list | tuple):
         if not metrics:
             msg = "Metrics list must not be empty."
             raise ValueError(msg)

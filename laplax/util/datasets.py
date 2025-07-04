@@ -1,14 +1,13 @@
-import os
+import logging
+from pathlib import Path
 
-import numpy as np
 import jax
 import jax.numpy as jnp
-from torchvision import datasets, transforms
-
+import numpy as np
 from jaxtyping import Array
-from typing import *
 from sklearn.datasets import fetch_openml
 from sklearn.model_selection import train_test_split
+from torchvision import datasets, transforms
 
 """
     Module for providing easy access to common datasets + utility functions
@@ -16,7 +15,7 @@ from sklearn.model_selection import train_test_split
 
 
 class DataLoader:
-    def __init__(self, X, y, batch_size=64, shuffle=True, seed=0):
+    def __init__(self, X, y, batch_size=64, shuffle=True, seed=0):  # noqa: FBT002
         self.X = jnp.array(X)
         self.y = jnp.array(y)
         self.batch_size = batch_size
@@ -50,21 +49,31 @@ class DataLoader:
 
 def fashion_mnist(
     batch_size=64, random_state=0, cache_dir=None
-) -> Tuple[DataLoader, DataLoader, int, int]:
-    if cache_dir is None:
-        cache_dir = os.path.expanduser("~/.moml_cache/fashion_mnist")
-    else:
-        cache_dir = os.path.expanduser(cache_dir)
-    os.makedirs(cache_dir, exist_ok=True)
-    X_path = os.path.join(cache_dir, "X.npy")
-    y_path = os.path.join(cache_dir, "y.npy")
+) -> tuple[DataLoader, DataLoader, int, int]:
+    """Loads the Fashion-MNIST dataset from OpenML and caches it.
 
-    if os.path.exists(X_path) and os.path.exists(y_path):
-        print("[Fashion-MNIST] Loading from cache...")
+    Args:
+        batch_size: Batch size of the resulting DataLoader
+        random_state: seed for reproducibility
+        cache_dir: cache location to save to/ load from
+
+    Returns:
+        trainloader, testloader, len(trainloder), len(testloader)
+    """
+    if cache_dir is None:
+        cache_dir = Path.expanduser("~/.moml_cache/fashion_mnist")
+    else:
+        cache_dir = Path.expanduser(cache_dir)
+    Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    X_path = Path(cache_dir) / "X.npy"
+    y_path = Path(cache_dir) / "y.npy"
+
+    if X_path.exists() and y_path.exists():
+        logging.info("[Fashion-MNIST] Loading from cache...")  # noqa: LOG015
         X = np.load(X_path)
         y = np.load(y_path)
     else:
-        print("[Fashion-MNIST] Downloading from OpenML and caching...")
+        logging.info("[Fashion-MNIST] Downloading from OpenML and caching...")  # noqa: LOG015
         data = fetch_openml(
             "Fashion-MNIST", version=1, as_frame=False, parser="liac-arff"
         )
@@ -84,12 +93,17 @@ def fashion_mnist(
 
 
 def permute(dataloader: DataLoader, seed: int = 0) -> DataLoader:
-    """
-    Returns a new DataLoader where each image in the dataset is permuted
-    using the same fixed random permutation (applied across all samples).
-    If seed == 0, no permutation is applied.
-    """
+    """Permutes a dataloader.
 
+    Args:
+        dataloader: DataLoader to be permuted.
+        seed: random seed to be used to generate the permutation
+
+
+    Returns:
+        A new DataLoader where each image in the dataset is permuted
+        using the same fixed random permutation (applied across all samples).
+    """
     if seed == 0:
         return DataLoader(
             X=dataloader.X,
@@ -113,7 +127,7 @@ def permute(dataloader: DataLoader, seed: int = 0) -> DataLoader:
     )
 
 
-def collect(loader: DataLoader, maxsamples: int) -> Tuple[Array, Array]:
+def collect(loader: DataLoader, maxsamples: int) -> tuple[Array, Array]:
     x, y = [], []
     cur = 0
     for xx, yy in loader:
@@ -123,34 +137,37 @@ def collect(loader: DataLoader, maxsamples: int) -> Tuple[Array, Array]:
         if cur >= maxsamples:
             break
 
-    assert len(x) > 0, (
-        "Accumulator is empty. Probably passed an exhausted generator as a loader."
-    )
-
     xret, yret = jnp.concat(x, axis=0), jnp.concat(y, axis=0)
     return xret[:maxsamples], yret[:maxsamples]
 
 
 def minimnist(
     batch_size=64, random_state=0, cache_dir=None
-) -> Tuple[DataLoader, DataLoader, int, int]:
-    """
-    Loads a sub-sampled version of MNIST (6k train/test samples instead of 60k/10k).
+) -> tuple[DataLoader, DataLoader, int, int]:
+    """Loads a sub-sampled version of MNIST (6k train/test samples instead of 60k/10k).
+
+    Args:
+        batch_size: Batch size of the resulting DataLoader
+        random_state: seed for reproducibility
+        cache_dir: cache location to save to/ load from
+
+    Returns:
+        trainloader, testloader, len(trainloder), len(testloader)
     """
     if cache_dir is None:
-        cache_dir = os.path.expanduser("~/.moml_cache/minimnist")
+        cache_dir = Path.expanduser("~/.moml_cache/minimnist")
     else:
-        cache_dir = os.path.expanduser(cache_dir)
-    os.makedirs(cache_dir, exist_ok=True)
-    X_path = os.path.join(cache_dir, "X.npy")
-    y_path = os.path.join(cache_dir, "y.npy")
+        cache_dir = Path.expanduser(cache_dir)
+    Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    X_path = Path(cache_dir) / "X.npy"
+    y_path = Path(cache_dir) / "y.npy"
 
-    if os.path.exists(X_path) and os.path.exists(y_path):
-        print("[MiniMNIST] Loading from cache...")
+    if X_path.exists() and y_path.exists():
+        logging.info("[MiniMNIST] Loading from cache...")  # noqa: LOG015
         X = np.load(X_path)
         y = np.load(y_path)
     else:
-        print("[MiniMNIST] Subsampling from MNIST and caching...")
+        logging.info("[MiniMNIST] Subsampling from MNIST and caching...")  # noqa: LOG015
         trainloader, testloader, *_ = mnist()
         X, y = (
             jnp.concat([trainloader.X, testloader.X]),
@@ -172,16 +189,23 @@ def minimnist(
     return trainloader, testloader, len(X_train), len(X_test)
 
 
-def mnist(batch_size=64, random_state=0, cache_dir=None):
-    """
-    Loads MNIST using torchvision, but returns this file's DataLoader objects.
-    """
+def mnist(batch_size=64, random_state=0, cache_dir=None) \
+    -> tuple[DataLoader, DataLoader]:
+    """Loads MNIST using torchvision, but returns this file's DataLoader objects.
 
+    Args:
+        batch_size: Batch size of the resulting DataLoader
+        random_state: seed
+        cache_dir: cache location to save to/ load from
+
+    Returns:
+        trainloader and testloader
+    """
     if cache_dir is None:
-        cache_dir = os.path.expanduser("~/.moml_cache/torch_mnist")
+        cache_dir = Path.expanduser("~/.moml_cache/torch_mnist")
     else:
-        cache_dir = os.path.expanduser(cache_dir)
-    os.makedirs(cache_dir, exist_ok=True)
+        cache_dir = Path.expanduser(cache_dir)
+    Path(cache_dir).mkdir(parents=True, exist_ok=True)
 
     transform = transforms.Compose([
         transforms.ToTensor(),

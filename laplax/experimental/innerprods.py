@@ -1,18 +1,17 @@
+import operator
 import warnings
+from collections.abc import Callable
+from functools import partial
+
 import jax
 import jax.numpy as jnp
-
 from flax import nnx
-from functools import partial
-from laplax.experimental.kfac import kfac_blocks
 
 from laplax.curv import create_ggn_mv
-from laplax.util.tree import sub, dot, mul, add
-from typing import *
-from jaxtyping import Array, PyTree
-
 from laplax.enums import LossFn
+from laplax.experimental.kfac import kfac_blocks
 from laplax.types import Array, Data, ModelFn, Params
+from laplax.util.tree import add, dot, mul, sub
 
 
 def kfac_inner_fn(
@@ -20,18 +19,16 @@ def kfac_inner_fn(
     model_fn: ModelFn,
     data: Data,
     loss_fn: LossFn = LossFn.CROSS_ENTROPY,
-    *args,
     **kwargs,
 ) -> Callable[[Array], Array]:
-    """
-    Returns a function that computes the KFAC inner product function for a model.
+    """Returns a function that computes the KFAC inner product function for a model.
 
     Args:
         params: Model parameters.
         model_fn: Function that computes the model output given parameters and input.
-        trainloader: DataLoader providing training data.
-        maxsamples: Number of samples to use from the loader.
+        data: Data dictionary containing 'input' and 'target'.
         loss_fn: Loss function to use for the KFAC computation (default: 'cross_entropy
+        kwargs: Unused.
 
     Returns:
         inner: A function that computes the inner product with a vector v scaled by
@@ -39,14 +36,17 @@ def kfac_inner_fn(
     """
     warnings.warn(
         "Current assumption is that the pytree structure puts bias \
-                before weights AND your model only consists of Linear Layers."
+                before weights AND your model only consists of Linear Layers.",
+                stacklevel=2
     )
 
     if (
         loss_fn.value != LossFn.CROSS_ENTROPY.value
     ):  # python 3.11 doesn't like enum equalities
-        raise NotImplementedError("Only cross_entropy loss is supported for now.")
+        error_msg = "Only cross_entropy loss is supported for now."
+        raise NotImplementedError(error_msg)
 
+    del kwargs  # unused
     As, Bs = kfac_blocks(params=params, model_fn=model_fn, data=data, loss_fn=loss_fn)
 
     def kfac_vtmv(v, As=As, Bs=Bs):
@@ -54,8 +54,9 @@ def kfac_inner_fn(
         vtFv = 0.0
         ws, bs = leaves[1::2], leaves[0::2]
 
-        for A_fac, B_fac, w, b in zip(As, Bs, ws, bs):
-            # fuse together according to structure of nnx pytree -> first bias, then weights
+        for A_fac, B_fac, w, b in zip(As, Bs, ws, bs, strict=False):
+            # fuse together according to structure of nnx pytree
+            # -> first bias, then weights
             W_ext = jnp.concatenate([b[jnp.newaxis, :], w], axis=0)
             vtFv += jnp.sum(W_ext * (A_fac @ W_ext @ B_fac))
         return vtFv
@@ -68,28 +69,27 @@ def emp_fisher_inner(
     model_fn: ModelFn,
     data: Data,
     loss_fn: LossFn = LossFn.CROSS_ENTROPY,
-    *args,
     **kwargs,
 ):
-    """
-    Computes the empirical Fisher information inner product function for a model.
+    """Computes the empirical Fisher information inner product function for a model.
 
     Args:
         params: Model parameters.
         model_fn: Function that computes the model output given parameters and input.
-        trainloader: DataLoader providing training data.
-        maxsamples: Number of samples to use from the loader.
-        *args, **kwargs: Additional arguments (unused).
+        data: Data dictionary containing 'input' and 'target'.
+        loss_fn: Loss function to use for the Fisher computation
+        **kwargs: Additional arguments (unused).
 
     Returns:
-        inner: A function that computes the empirical Fisher inner product with a vector v.
+        inner: A function that computes the empirical Fisher inner
+        product with a vector v.
     """
-
     if (
         loss_fn.value != LossFn.CROSS_ENTROPY.value
     ):  # python 3.11 doesn't like enum equalities
-        raise NotImplementedError("Only cross_entropy loss is supported for now.")
-
+        error_msg = "Only cross_entropy loss is supported for now."
+        raise NotImplementedError(error_msg)
+    del kwargs  # unused
     x, y = data["input"], data["target"]
 
     def cross_entropy(params, x, y):
@@ -100,25 +100,28 @@ def emp_fisher_inner(
     sqgrads = jax.tree.map(lambda x: jnp.mean(x**2, axis=0), grads)  # square and mean
 
     def inner(v, sqgrads=sqgrads):
-        return dot(v, jax.tree.map(lambda x, y: x * y, v, sqgrads))
+        return dot(v, jax.tree.map(operator.mul, v, sqgrads))
 
     return inner
 
 
 def zero(*args, **kwargs):
-    return lambda x: 0
+    """Returns a function that always returns zero."""
+    del args, kwargs  # unused
+    return lambda _: 0
 
 
 def unscaled_dot_product(*args, **kwargs):
-    """
-    Returns a function that computes the unscaled dot product of a vector with itself.
+    """Computes the unscaled dot product of a vector with itself.
 
     Args:
-        *args, **kwargs: Ignored.
+        *args : Ignored
+        **kwargs: Ignored.
 
     Returns:
         inner: A function that computes dot(v, v).
     """
+    del args, kwargs  # unused
 
     def inner(v):
         return dot(v, v)
@@ -132,23 +135,23 @@ def ggn_inner(
     data: Data,
     numsamples_train: int,
     loss_fn: LossFn = LossFn.CROSS_ENTROPY,
-    *args,
     **kwargs,
 ):
-    """
-    Returns a function that computes the Generalized Gauss-Newton (GGN) inner product for a model.
+    """Computes the Generalized Gauss-Newton (GGN inner product.
 
     Args:
         params: Model parameters.
         model_fn: Function that computes the model output given parameters and input.
-        trainloader: DataLoader providing training data.
-        maxsamples: Number of samples to use from the loader.
+        data: Data dictionary containing 'input' and 'target'.
         numsamples_train: Total number of training samples (for scaling).
-        *args, **kwargs: Additional arguments (unused).
+        loss_fn: Loss function to use for the GGN computation
+            (default: 'cross_entropy').
+        **kwargs: Additional arguments (unused).
 
     Returns:
         inner: A function that computes the GGN inner product with a vector v.
     """
+    del kwargs  # unused
     partial_hvp = create_ggn_mv(
         model_fn=model_fn,
         params=params,
@@ -169,18 +172,19 @@ def type1_fisher_inner(
     data: Data,
     loss_fn: LossFn = LossFn.CROSS_ENTROPY,
     M=30,
-    *args,
     **kwargs,
 ):
-    """
-    Computes the Type-1 Fisher information inner product function using Monte Carlo label sampling.
+    """Computes the Type-1 Fisher information inner product.
 
     Args:
-        model: The neural network model.
-        trainloader: DataLoader providing training data.
-        maxsamples: Number of samples to use from the loader.
+        params: Model parameters.
+        model_fn: Function that computes the model output given parameters and input.
+        data: Data dictionary containing 'input' and 'target'.
+        loss_fn: Loss function to use for the Fisher computation
+            (default: 'cross_entropy').
         M: Number of Monte Carlo samples (default: 30).
-        *args, **kwargs: Additional arguments (unused).
+        *args: Additional positional arguments (unused).
+        **kwargs: Additional keyword arguments (unused).
 
     Returns:
         inner: A function that computes the Type-1 Fisher inner product with a vector v.
@@ -188,9 +192,12 @@ def type1_fisher_inner(
     if (
         loss_fn.value != LossFn.CROSS_ENTROPY.value
     ):  # python 3.11 doesn't like enum equalities
-        raise NotImplementedError("Only cross_entropy loss is supported for now.")
+        msg = "Only cross_entropy loss is supported for now."
+        raise NotImplementedError(msg)
 
-    def sample_cross_entropy(params, x, y, *, key):
+    del kwargs  # unused
+
+    def sample_cross_entropy(params, x, _y, *, key):
         logits = model_fn(params, x)
         probs = jax.nn.softmax(logits)
         # Sample one label per example in the batch
@@ -218,6 +225,6 @@ def type1_fisher_inner(
             running_mean = add(running_mean, mul(1 / (i + 1), sub(grads, running_mean)))
 
     def inner(v, running_mean=running_mean):
-        return dot(v, jax.tree.map(lambda x, y: x * y, v, running_mean))
+        return dot(v, jax.tree.map(operator.mul, v, running_mean))
 
     return inner

@@ -1,14 +1,14 @@
+from collections.abc import Callable
+from functools import wraps
+from itertools import chain
+from typing import Any
+
 import jax
 import jax.numpy as jnp
-
-from itertools import chain
-from typing import *
-from jaxtyping import Array
-from functools import wraps
-
+from jax._src.util import safe_map  # noqa: PLC2701
 from jax.extend import core
-from jax._src.util import safe_map
 from jax.extend.core import Jaxpr
+from jaxtyping import Array
 
 """
     Following: https://github.com/jax-ml/jax/discussions/5336
@@ -18,13 +18,13 @@ from jax.extend.core import Jaxpr
 """
 
 
-def flat_eval_jaxpr(jaxpr: Jaxpr, consts: List[Any], *args) -> List[Array]:
-    """
-    Evaluates a JaxPr.
+def flat_eval_jaxpr(jaxpr: Jaxpr, consts: list[Any], *args) -> list[Array]:
+    """Evaluates a JaxPr.
 
     Args:
         jaxpr (Jaxpr): The Jaxpr to be evaluated.
         consts (List[Any]): Constants used in the Jaxpr.
+        args: invars to jaxpr
 
     Returns:
         List[Array]: The output values of the Jaxpr.
@@ -44,7 +44,7 @@ def flat_eval_jaxpr(jaxpr: Jaxpr, consts: List[Any], *args) -> List[Array]:
     safe_map(write, jaxpr.invars, args)
     safe_map(write, jaxpr.constvars, consts)
 
-    for i, eqn in enumerate(jaxpr.eqns):
+    for eqn in jaxpr.eqns:
         invals = safe_map(read, eqn.invars)
 
         if "call_jaxpr" in eqn.params:  # handle custom definitions (i.e. jax.nn.relu)
@@ -68,20 +68,19 @@ def flat_eval_jaxpr(jaxpr: Jaxpr, consts: List[Any], *args) -> List[Array]:
 
 
 def perturb(
-    jaxpr: Jaxpr, consts: List[Any], perturbations: List[Array], *args
+    jaxpr: Jaxpr, consts: list[Any], perturbations: list[Array], *args
 ) -> Array:
-    """
-    To be differentiated w.r.t. perturbations.
+    """To be differentiated w.r.t. perturbations.
 
     Args:
         jaxpr (Jaxpr): The Jaxpr to be evaluated.
         consts (List[Any]): Constants used in the Jaxpr.
         perturbations (List[Array]): Perturbations to be added to the correct JaxprEqn.
+        args: invars to jaxpr
 
     Returns:
         Regular output of the Jaxpr.
     """
-
     env = {}
 
     def read(var):
@@ -96,7 +95,7 @@ def perturb(
     safe_map(write, jaxpr.invars, args)
     safe_map(write, jaxpr.constvars, consts)
 
-    for i, eqn in enumerate(jaxpr.eqns):
+    for eqn in jaxpr.eqns:
         invals = safe_map(read, eqn.invars)
         if "call_jaxpr" in eqn.params:  # if its a relu, record the activation
             subjaxpr = eqn.params["call_jaxpr"]
@@ -119,15 +118,16 @@ def perturb(
 
 
 def flat_inject(
-    jaxpr: Jaxpr, consts: List[Any], tagging_rule: Callable | None, *args
-) -> Tuple[List[Array], List[Array]]:
-    """
-    Injects perturbations into the Jaxpr and collects intermediate activations and gradients.
+    jaxpr: Jaxpr, consts: list[Any], tagging_rule: Callable | None, *args
+) -> tuple[list[Array], list[Array]]:
+    """Injects perturbations into the Jaxpr and collects intermediate acts and grads.
 
     Args:
         jaxpr (Jaxpr): The Jaxpr to be transformed.
         consts (List[Any]): Constants used in the Jaxpr.
-        tagging_rule (Callable | None): A function that defines how to tag the intermediate variables.
+        tagging_rule (Callable | None): A function that defines how to tag the
+            intermediate variables.
+        args: invars to jaxpr
 
     Returns:
         Tuple[List[Array], List[Array]]: A tuple containing:
@@ -141,7 +141,7 @@ def flat_inject(
 
     TODO: Use `tagging_rule` to tag the correct variables for perturbation.
     """
-
+    del tagging_rule  # unused
     env = {}
     perturbations, activations = [], []
 
@@ -178,22 +178,26 @@ def flat_inject(
 
         safe_map(write, eqn.outvars, outvals)
 
-    perturbed_fn = lambda perts, *args: perturb(jaxpr, consts, perts, *args)
+    def perturbed_fn(perts, *args):
+        return perturb(jaxpr, consts, perts, *args)
+
     grads = jax.grad(perturbed_fn)(perturbations, *args)
 
     return activations, grads
 
 
 def intergrad(fun: Callable, tagging_rule: Callable | None = None) -> Callable:
-    """
-    Function transformation that captures intermediate activations and gradients.
+    r"""Function transformation that captures intermediate activations and gradients.
 
     Args:
-        fun (Callable): The function to be transformed. It should accept parameters and inputs.
-        tagging_rule (Callable | None): A function that defines how to tag the intermediate variables.
+        fun (Callable): The function to be transformed. It should accept
+            parameters and inputs.
+        tagging_rule (Callable | None): A function that defines how to
+            tag the intermediate variables.
 
     Returns:
-        Callable: A function that, when called, returns the intermediate activations and gradients.
+        Callable: A function that, when called, returns the intermediate
+        activations and gradients.
 
     Usage:
         ```python
@@ -202,11 +206,13 @@ def intergrad(fun: Callable, tagging_rule: Callable | None = None) -> Callable:
             logits = nnx.merge(graph, params)(x)
             return -(y * jax.nn.log_softmax(logits)).mean()
 
-        intergrad_jit = jax.jit(jax.vmap(intergrad(celoss, tagging_rule=None), in_axes=(None, 0, 0)))
+        intergrad_jit = jax.jit(jax.vmap(intergrad(celoss, tagging_rule=None), \\
+                            in_axes=(None, 0, 0)))
         acts, grads = intergrad_jit(celoss)(params, x, y)
         ```
 
     """
+    del tagging_rule  # unused
 
     @wraps(fun)
     def wrapped(*args, **kwargs):

@@ -111,7 +111,8 @@ def dot(tree1: PyTree, tree2: PyTree) -> float:
         A float, the result of the dot-product of the leaves of both trees
     """
     return sum(
-        (a * b).sum() for a, b in zip(jax.tree.leaves(tree1), jax.tree.leaves(tree2))
+        (a * b).sum() for a, b in zip(jax.tree.leaves(tree1), jax.tree.leaves(tree2),
+                                      strict=False)
     )
 
 

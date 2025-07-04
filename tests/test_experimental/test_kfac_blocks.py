@@ -1,15 +1,16 @@
-import pytest
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
+import optax
 from flax import nnx
+
 from laplax.experimental.kfac import kfac_blocks
 from laplax.util.datasets import collect, minimnist
-import optax
 
-import matplotlib.pyplot as plt
+PLOT = False
 
 
-class nnx_mlp(nnx.Module):
+class NnxMLP(nnx.Module):
     def __init__(self, in_dim, mid_dim, out_dim, key):
         self.linear1 = nnx.Linear(in_dim, mid_dim, rngs=key)
         self.linear2 = nnx.Linear(mid_dim, mid_dim, rngs=key)
@@ -24,19 +25,11 @@ class nnx_mlp(nnx.Module):
         return x
 
 
-def test_emp_fisher_equiv(plot=False):
-    """
-    This tests for equivalence between the empirical fisher
-    and KFAC-expand-empirical for a single training example as per
-    Test-Case 1 of F. Dangel's KFAC tutorial (page 49ff).
-
-    I'm still unsure why there isn't exact correlation between the two,
-    i suspect precision errors since I'm working in different scales.
-    """
-
-    model = nnx_mlp(in_dim=28 * 28, mid_dim=10, out_dim=10, key=nnx.Rngs(0))
+def test_emp_fisher_equiv():
+    """Test KFAC-emp and emp fisher equivalence."""
+    model = NnxMLP(in_dim=28 * 28, mid_dim=10, out_dim=10, key=nnx.Rngs(0))
     optimizer = nnx.Optimizer(model, optax.adam(learning_rate=0.001))
-    trainloader, testloader, *_ = minimnist(batch_size=64, random_state=0)
+    trainloader, _, *_ = minimnist(batch_size=64, random_state=0)
 
     def ce_loss(model, x, y):
         logits = model(x)
@@ -50,9 +43,9 @@ def test_emp_fisher_equiv(plot=False):
         return loss
 
     # train model for 30 epochs
-    for epoch in range(30):
+    for _ in range(30):
         for x_batch, y_batch in trainloader:
-            loss = step(model, optimizer, x_batch, y_batch)
+            _ = step(model, optimizer, x_batch, y_batch)
 
     # has to be one sample, otherwise equivalance wont hold
     x, y = collect(trainloader, maxsamples=1)
@@ -72,7 +65,7 @@ def test_emp_fisher_equiv(plot=False):
     idx = 0
     _, axes = plt.subplots(nrows=len(As), ncols=2)
 
-    for j, a, b in zip(range(len(As)), As, Bs):
+    for j, a, b in zip(range(len(As)), As, Bs, strict=False):
         block = jnp.kron(a, b)
         i = block.shape[0]
         true_block = FIM[idx : idx + i, idx : idx + i]
@@ -86,8 +79,8 @@ def test_emp_fisher_equiv(plot=False):
         )
         idx += i
 
-        if plot:
+        if PLOT:
             axes[j][0].imshow(block[:20, :20])
             axes[j][1].imshow(true_block[:20, :20])
-    if plot:
+    if PLOT:
         plt.show()

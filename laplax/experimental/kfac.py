@@ -1,14 +1,13 @@
+from collections.abc import Callable
+from typing import Any, Literal
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-from typing import Callable, Union
-from laplax.util.intergrad import intergrad
-from typing import Tuple
-from jaxtyping import Array
-from typing import Literal, Dict, Any, List
 
 from laplax.enums import LossFn
 from laplax.types import Array, Data, ModelFn, Params
+from laplax.util.intergrad import intergrad
 
 
 def kfac_blocks(
@@ -16,18 +15,18 @@ def kfac_blocks(
     model_fn: ModelFn,
     data: Data,
     fisher_type: Literal["type1", "empirical"] = "empirical",
-    fisher_kwargs: Dict[str, Any] = {},
-    loss_fn: Union[Callable, LossFn] = LossFn.CROSS_ENTROPY,
-) -> Tuple[List[Array], List[Array]]:
-    """
-    Computes the KFAC blocks.
+    fisher_kwargs: dict[str, Any] | None = None,
+    loss_fn: Callable | LossFn = LossFn.CROSS_ENTROPY,
+) -> tuple[list[Array], list[Array]]:
+    """Computes the KFAC blocks.
 
     Args:
         params: The parameters of the model.
         model_fn: The model function that takes parameters and inputs.
-        x: The input data.
-        y: The target labels.
-        fisher_type: The type of Fisher information to compute, either 'type1' or 'empirical'.
+        data: A dictionary containing input data under the key "input" and
+            target labels under "target".
+        fisher_type: The type of Fisher information to compute, either
+            'type1' or 'empirical'.
         fisher_kwargs: Additional keyword arguments for the Fisher computation.
         loss_fn: The loss function to use, either a callable or a string identifier.
 
@@ -39,7 +38,10 @@ def kfac_blocks(
     if (
         loss_fn.value != LossFn.CROSS_ENTROPY.value
     ):  # python 3.11 doesn't like enum equalities
-        raise NotImplementedError("Only cross_entropy loss is supported for now.")
+        msg = "Only cross_entropy loss is supported for now."
+        raise NotImplementedError(msg)
+
+    fisher_kwargs = fisher_kwargs or {}  # check for None
 
     def celoss(params, x, y):
         return -(y * jax.nn.log_softmax(model_fn(params, x))).mean()
@@ -54,35 +56,33 @@ def kfac_blocks(
         params=params, model_fn=model_fn, data=data, loss_fn=celoss, **fisher_kwargs
     )
     activations, grads = (
-        jax.tree.map(lambda x: jnp.atleast_2d(x), activations),
-        jax.tree.map(lambda x: jnp.atleast_2d(x), grads),
+        jax.tree.map(jnp.atleast_2d, activations),
+        jax.tree.map(jnp.atleast_2d, grads),
     )
     As, Bs = [], []
     R, N = 1 / (x.shape[0] * y.shape[-1]), x.shape[0]  # reduction factors
-    for A, G in zip(activations, grads):
-        # TODO: Devil is in the detail: The order by which we concatenate
+    for A, G in zip(activations, grads, strict=False):
+        # TODO(@author): Devil is in the detail: The order by which we concatenate
         # the ones to the A_in matters. The pytree definition of
         # the network defines the bias BEFORE the weights. Hence,
         # we have to pre-pend the ones to be compatible.
         A_aug = jnp.concatenate([jnp.ones((A.shape[0], 1)), A], axis=1)
-        As.append(jax.lax.stop_gradient((A_aug.T @ A_aug * R)))
+        As.append(jax.lax.stop_gradient(A_aug.T @ A_aug * R))
         Bs.append(jax.lax.stop_gradient((G.T @ G) / N))
     return As, Bs
 
 
 def emp_fisher_grads(
-    params: Params, model_fn: ModelFn, data: Data, loss_fn: Callable, **kwargs
-) -> Tuple[List[Array], List[Array]]:
-    """
-    Computes the empirical Fisher information matrix by collecting
-    activations and gradients for each input sample.
+    params: Params, data: Data, loss_fn: Callable, **kwargs
+) -> tuple[list[Array], list[Array]]:
+    """Computes the empirical Fisher information matrix.
 
     Args:
         params: The parameters of the model.
-        model_fn: The model function that takes parameters and inputs.
-        xs: Input data.
-        ys: Target labels.
+        data: A dictionary containing input data under the key "input" and
+            target labels under "target".
         loss_fn: The loss function to use.
+        **kwargs: Additional keyword arguments (unused).
 
     Returns:
         A tuple containing:
@@ -90,12 +90,13 @@ def emp_fisher_grads(
             - A list of gradients for each layer.
 
     """
+    del kwargs  # unused
     xs, ys = data["input"], data["target"]
     intergrad_jit = jax.jit(
         jax.vmap(intergrad(loss_fn, tagging_rule=None), in_axes=(None, 0, 0))
     )
     activations, grads = intergrad_jit(params, xs, ys)
-    activations = [xs] + activations
+    activations = [xs, *activations]
     return activations, grads
 
 
@@ -106,17 +107,17 @@ def type_1_fisher_grads(
     loss_fn: Callable,
     num_samples: int = 128,
     **kwargs,
-) -> Tuple[List[Array], List[Array]]:
-    r"""
-    Computes the Type-1 Fisher information matrix by sampling from the output distribution.
+) -> tuple[list[Array], list[Array]]:
+    r"""Computes the Type-1 Fisher information matrix.
 
     Args:
         params: The parameters of the model.
         model_fn: The model function that takes parameters and inputs.
-        xs: Input data.
-        ys: Target labels.
+        data: A dictionary containing input data under the key "input" and
+            target labels under "target".
         loss_fn: The loss function to use.
         num_samples: The number of samples to draw from the output distribution.
+        **kwargs: Additional keyword arguments (unused).
 
     Returns:
         A tuple containing:
@@ -127,9 +128,11 @@ def type_1_fisher_grads(
     \hat y samples from the output distribution. We continue, by collecting
     `num_samples` gradients from intergrad(model, x, \hat y).
     """
-    raise NotImplementedError("Type-1 Fisher gradients aren't sufficiently tested yet.")
+    error_msg = "Type-1 Fisher gradients aren't sufficiently tested yet."
+    raise NotImplementedError(error_msg)
 
-    xs, ys = data["input"], data["target"]
+    del kwargs  # unused
+    xs = data["input"]
     intergrad_jit = jax.jit(
         jax.vmap(intergrad(loss_fn, tagging_rule=None), in_axes=(None, 0, 0))
     )
@@ -154,14 +157,16 @@ def type_1_fisher_grads(
 
         grads_buf.append(grads)
 
-        # activations are duplicates, so we take the first one for each leaf in the tree.
+        # activations are duplicates, so we take the first one for
+        # each leaf in the tree.
         acts = jax.tree.map(lambda x: x[0][jnp.newaxis, :], activations)
         activations_buf.append(acts)
 
     # grads is list of N  * [(g1,), (g2,), (g3,)], we need to turn this
     # into [(N, g1), (N, g2), (N, g3)].
-    stacked_grads = [jnp.concat(gs) for gs in zip(*grads_buf)]
-    stacked_activations = [jnp.concat(acts) for acts in zip(*activations_buf)]
-    stacked_activations = [xs] + stacked_activations  # prepend the input x
+    stacked_grads = [jnp.concat(gs) for gs in zip(*grads_buf, strict=False)]
+    stacked_activations = [jnp.concat(acts) for acts in
+                           zip(*activations_buf, strict=False)]
+    stacked_activations = [xs, *stacked_activations]  # prepend the input x
 
     return stacked_activations, stacked_grads

@@ -446,7 +446,7 @@ def print_results(results_dict, title=None):
 
     # Print each key-value pair with aligned formatting
     for key, value in results_dict.items():
-        if isinstance(value, (float, np.floating, jnp.floating)):
+        if isinstance(value, float | np.floating | jnp.floating):
             print(f"{key!s:<{max_key_length}} : {value:.6f}")  # noqa: T201
         else:
             try:
