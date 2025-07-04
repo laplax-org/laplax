@@ -1,1 +1,0 @@
-All plots were made using MNIST loaded from pytorch with nnx MLP.

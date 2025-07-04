@@ -2,7 +2,7 @@ import pytest
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from temp.kfac import kfac_blocks
+from laplax.experimental.kfac import kfac_blocks
 from laplax.util.datasets import collect, minimnist
 import optax
 

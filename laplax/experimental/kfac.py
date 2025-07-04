@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp; import jax.random as jr;
 
 from typing import Callable, Union
-from temp.intergrad import intergrad
+from laplax.util.intergrad import intergrad
 from typing import Tuple
 from jaxtyping import Array, PyTree
 from typing import Literal, Dict, Any, List
@@ -98,7 +98,7 @@ def type_1_fisher_grads(params : PyTree, model_fn : Callable, xs, ys, loss_fn, n
             A tuple containing:
                 - A list of activations for each layer.
                 - A list of gradients for each layer.
-                
+
         For each sample x, we compute the forward pass, then draw `num_samples`
         \hat y samples from the output distribution. We continue, by collecting
         `num_samples` gradients from intergrad(model, x, \hat y).

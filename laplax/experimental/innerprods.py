@@ -20,7 +20,7 @@ def kfac_inner_fn(params : PyTree, model_fn : Callable[[PyTree, Array], Array], 
                   loss_fn : Union[Callable, Literal['cross_entropy', 'mse']] = 'cross_entropy',
                   *args, **kwargs) -> Callable[[Array], Array]:
     """
-        Returns a function that computes the KFAC inner product for a model.
+        Returns a function that computes the KFAC inner product function for a model.
 
         Args:
             params: Model parameters.
