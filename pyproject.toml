@@ -50,6 +50,7 @@ dev = [
     "curvlinops-for-pytorch",
     "laplace-torch",
     "coveralls",
+    "scikit-learn",
 ]
 notebooks = [
     "torch",
