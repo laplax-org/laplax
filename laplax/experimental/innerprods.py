@@ -133,7 +133,7 @@ def ggn_inner(
     params: Params,
     model_fn: ModelFn,
     data: Data,
-    numsamples_train: int,
+    num_total_samples: int,
     loss_fn: LossFn = LossFn.CROSS_ENTROPY,
     **kwargs,
 ):
@@ -143,7 +143,7 @@ def ggn_inner(
         params: Model parameters.
         model_fn: Function that computes the model output given parameters and input.
         data: Data dictionary containing 'input' and 'target'.
-        numsamples_train: Total number of training samples (for scaling).
+        num_total_samples: Total number of training samples (for scaling).
         loss_fn: Loss function to use for the GGN computation
             (default: 'cross_entropy').
         **kwargs: Additional arguments (unused).
@@ -157,7 +157,7 @@ def ggn_inner(
         params=params,
         data=data,
         loss_fn=loss_fn,
-        num_total_samples=numsamples_train,
+        num_total_samples=num_total_samples,
     )
 
     def inner(v, partial_hvp=partial_hvp):
