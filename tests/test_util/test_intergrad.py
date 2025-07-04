@@ -139,7 +139,7 @@ def test_nnx_activations():
     dummy_model = nnx_intermediate_mlp(5, 12, 10, nnx.Rngs(0))
     key = jax.random.PRNGKey(0)
     x = jax.random.normal(key=key, shape=(10, 5))
-    y = jax.nn.one_hot(jnp.ones(10), num_classes=10)
+    y = jax.nn.one_hot(jnp.ones(10, dtype=jnp.int32), num_classes=10)
 
     graph, params = nnx.split(model)
     def model_fn(p, x):
