@@ -165,8 +165,9 @@ def type_1_fisher_grads(
     # grads is list of N  * [(g1,), (g2,), (g3,)], we need to turn this
     # into [(N, g1), (N, g2), (N, g3)].
     stacked_grads = [jnp.concat(gs) for gs in zip(*grads_buf, strict=False)]
-    stacked_activations = [jnp.concat(acts) for acts in
-                           zip(*activations_buf, strict=False)]
+    stacked_activations = [
+        jnp.concat(acts) for acts in zip(*activations_buf, strict=False)
+    ]
     stacked_activations = [xs, *stacked_activations]  # prepend the input x
 
     return stacked_activations, stacked_grads

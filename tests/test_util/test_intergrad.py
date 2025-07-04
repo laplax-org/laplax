@@ -96,7 +96,6 @@ class IntermediateMLP(nnx.Module):
 
 
 def test_eqx_intergrad_shapes():
-
     key = jax.random.PRNGKey(0)
     model = EqxMLP(5, 12, 10, key)
     params, static = eqx.partition(model, eqx.is_array)
@@ -194,5 +193,6 @@ def test_nnx_gradients():
     allgrads = p_celoss(pmodel, x, y)
     intm_grads = [allgrads.xgrad1.value, allgrads.xgrad2.value, allgrads.xgrad3.value]
     _, grads = intergrad(celoss, tagging_rule=None)(params, x, y)
-    assert all([jnp.allclose(a, b).all() for a, b in    # noqa: C419
-                zip(intm_grads, grads, strict=False)])
+    assert all([  # noqa: C419
+        jnp.allclose(a, b).all() for a, b in zip(intm_grads, grads, strict=False)
+    ])

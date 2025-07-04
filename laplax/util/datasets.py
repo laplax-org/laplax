@@ -189,8 +189,9 @@ def minimnist(
     return trainloader, testloader, len(X_train), len(X_test)
 
 
-def mnist(batch_size=64, random_state=0, cache_dir=None) \
-    -> tuple[DataLoader, DataLoader]:
+def mnist(
+    batch_size=64, random_state=0, cache_dir=None
+) -> tuple[DataLoader, DataLoader]:
     """Loads MNIST using torchvision, but returns this file's DataLoader objects.
 
     Args:

@@ -37,7 +37,7 @@ def kfac_inner_fn(
     warnings.warn(
         "Current assumption is that the pytree structure puts bias \
                 before weights AND your model only consists of Linear Layers.",
-                stacklevel=2
+        stacklevel=2,
     )
 
     if (
