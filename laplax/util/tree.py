@@ -377,7 +377,7 @@ def tree_vec_get(tree: PyTree, idx: int) -> Any:
         The element at the specified index.
     """
     if isinstance(tree, jnp.ndarray):
-        return tree[idx]  # Also works with arrays.
+        return tree.reshape(-1)[idx]
     # Column flat and get index
     flat, _ = jax.tree_util.tree_flatten(tree)
     flat = jnp.concatenate([f.reshape(-1) for f in flat])

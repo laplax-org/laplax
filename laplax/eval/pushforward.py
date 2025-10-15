@@ -598,8 +598,13 @@ def lin_pred_var(
 
     pred_mean = results["pred_mean"]
 
-    # Compute diagonal as variance
-    results["pred_var"] = util.mv.diagonal(cov, layout=math.prod(pred_mean.shape))
+    # Compute diagonal as variance and match output shape
+    pred_var = util.mv.diagonal(
+        cov,
+        layout=math.prod(pred_mean.shape),
+        mv_jittable=kwargs.get("mv_jittable", True),
+    )
+    results["pred_var"] = pred_var.reshape(pred_mean.shape)
     return results, aux
 
 
