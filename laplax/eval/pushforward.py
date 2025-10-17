@@ -326,9 +326,13 @@ def nonlin_pred_var(
 
     if "pred_cov" in results:
         pred_cov = results["pred_cov"]
-        if pred_cov.ndim > 0:
-            pred_cov = jnp.diagonal(pred_cov)
-        results["pred_var"] = pred_cov
+        pred_var = (
+            jnp.diagonal(pred_cov)
+            if pred_cov.ndim >= 2
+            else jnp.reshape(pred_cov, (-1,))
+        )
+        pred_var = pred_var.reshape(aux["pred_ensemble"].shape[1:])
+        results["pred_var"] = pred_var
     else:
         pred_ensemble = aux["pred_ensemble"]
         results["pred_var"] = util.tree.var(pred_ensemble, axis=0)
@@ -598,8 +602,13 @@ def lin_pred_var(
 
     pred_mean = results["pred_mean"]
 
-    # Compute diagonal as variance
-    results["pred_var"] = util.mv.diagonal(cov, layout=math.prod(pred_mean.shape))
+    # Compute diagonal as variance and match output shape
+    pred_var = util.mv.diagonal(
+        cov,
+        layout=math.prod(pred_mean.shape),
+        mv_jittable=kwargs.get("mv_jittable", True),
+    )
+    results["pred_var"] = pred_var.reshape(pred_mean.shape)
     return results, aux
 
 
