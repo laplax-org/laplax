@@ -196,7 +196,7 @@ def fetch_loss_hessian_mv(
     | None,
     loss_hessian_mv: Callable | None,
     vmap_over_data: bool,
-    **kwargs: KWargs,
+    **kwargs: Kwargs,
 ) -> Callable:
     r"""
     Encapsulates fetching the loss hessian mv given a loss_fn or loss_hessian_mv.

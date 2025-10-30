@@ -67,7 +67,7 @@ def create_ggn_mv_without_data(
 
     """
     # Create loss Hessian-vector product
-    loss_hessian_mv = fetch_hessian_mv(loss_fn, loss_hessian_mv, vmap_over_data)
+    loss_hessian_mv = fetch_loss_hessian_mv(loss_fn, loss_hessian_mv, vmap_over_data)
 
     def ggn_mv(vec, data):
         # Step 1: Single jvp for entire batch, if vmap_over_data is True

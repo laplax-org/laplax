@@ -66,8 +66,8 @@ def create_fisher_mv_without_data(
     """
 
     # Create loss Hessian-vector product
-    loss_hessian_mv = fetch_hessian_mv(loss_fn, loss_hessian_mv, vmap_over_data)
-	
+	loss_hessian_mv = fetch_loss_hessian_mv(loss_fn, loss_hessian_mv, vmap_over_data)
+
 	if vmap_over_data:
 		loss_hessian_mv = jax.vmap(loss_hessian_mv)
 
