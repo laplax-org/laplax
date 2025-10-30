@@ -6,7 +6,7 @@ import jax
 
 from loguru import logger
 
-from laplax.curv.loss import create_loss_hessian_mv
+from laplax.curv.loss import fetch_loss_hessian_mv
 
 
 from laplax.enums import LossFn
@@ -50,8 +50,8 @@ def create_fisher_mv_without_data(
     	type: The type of Fisher approximation.
         model_fn: The model's forward pass function.
         params: Model parameters.
-        loss_fn: Loss function to use for the GGN computation.
-        factor: Scaling factor for the GGN computation.
+        loss_fn: Loss function to use for the Fisher computation.
+        factor: Scaling factor for the Fisher computation.
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         loss_hessian_mv: The loss Hessian matrix-vector product.
 		mc_samples: Number of MC samples to use for type "MC". Defaults to 1.
@@ -66,7 +66,7 @@ def create_fisher_mv_without_data(
     """
 
     # Create loss Hessian-vector product
-	loss_hessian_mv = loss_hessian_mv or create_loss_hessian_mv(loss_fn)
+    loss_hessian_mv = fetch_hessian_mv(loss_fn, loss_hessian_mv, vmap_over_data)
 	
 	if vmap_over_data:
 		loss_hessian_mv = jax.vmap(loss_hessian_mv)

@@ -15,7 +15,7 @@ from laplax.types import (
 )
 from laplax.util.tree import mul
 
-from laplax.curv.loss import create_loss_hessian_mv
+from laplax.curv.loss import fetch_loss_hessian_mv
 
 
 
@@ -67,10 +67,7 @@ def create_ggn_mv_without_data(
 
     """
     # Create loss Hessian-vector product
-    loss_hessian_mv = loss_hessian_mv or create_loss_hessian_mv(loss_fn)
-
-    if vmap_over_data:
-        loss_hessian_mv = jax.vmap(loss_hessian_mv)
+    loss_hessian_mv = fetch_hessian_mv(loss_fn, loss_hessian_mv, vmap_over_data)
 
     def ggn_mv(vec, data):
         # Step 1: Single jvp for entire batch, if vmap_over_data is True
@@ -142,22 +139,9 @@ def create_ggn_mv(
         A function that takes a vector and computes the GGN matrix-vector product for
             the given data.
 
-    Raises:
-        ValueError: If both `loss_fn` and `loss_hessian_mv` are provided.
-        ValueError: If neither `loss_fn` nor `loss_hessian_mv` are provided.
-
     Note:
         The function assumes as a default that the data has a batch dimension.
     """
-    # Enforce either loss_fn or loss_hessian_mv must be provided:
-    if loss_fn is None and loss_hessian_mv is None:
-        msg = "Either loss_fn or loss_hessian_mv must be provided."
-        raise ValueError(msg)
-
-    if loss_fn is not None and loss_hessian_mv is not None:
-        msg = "Only one of loss_fn or loss_hessian_mv must be provided."
-        raise ValueError(msg)
-
     if num_curv_samples is None:
         num_curv_samples = data["input"].shape[0]
 

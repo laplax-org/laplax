@@ -188,3 +188,59 @@ def create_loss_hessian_mv(
     msg = "unsupported loss function provided"
     raise ValueError(msg)
 
+
+def fetch_loss_hessian_mv(
+    loss_fn: LossFn
+    | str
+    | Callable[[PredArray, TargetArray], Num[Array, "..."]]
+    | None,
+    loss_hessian_mv: Callable | None,
+    vmap_over_data: bool,
+    **kwargs: KWargs,
+) -> Callable:
+    r"""
+    Encapsulates fetching the loss hessian mv given a loss_fn or loss_hessian_mv.
+    
+    For predefined loss functions like cross-entropy and mean squared error, the
+    function computes their corresponding Hessian-vector products using efficient
+    formulations. For custom loss functions, the Hessian-vector product is computed via
+    automatic differentiation.
+
+    Args:
+        loss_fn: Loss function to compute the Hessian-vector product for. Supported
+            options are:
+
+            - `LossFn.BINARY_CROSS_ENTROPY` for binary cross-entropy loss.
+            - `LossFn.CROSS_ENTROPY` for cross-entropy loss.
+            - `LossFn.MSE` for mean squared error loss.
+            - `LossFn.NONE` for no loss.
+            - A custom callable loss function that takes predictions and targets.
+
+        loss_hessian_mv: Precomputed loss hessian mv to use
+        vmap_over_data: Whether to vmap over the data
+        **kwargs: Unused keyword arguments.
+    
+    Returns:
+        A function that computes the Hessian-vector product for the given loss function.
+
+    Raises:
+        ValueError: If both `loss_fn` and `loss_hessian_mv` are provided.
+        ValueError: If neither `loss_fn` nor `loss_hessian_mv` are provided.
+
+    """
+
+    # Enforce either loss_fn or loss_hessian_mv must be provided:
+    if loss_fn is None and loss_hessian_mv is None:
+        msg = "Either loss_fn or loss_hessian_mv must be provided."
+        raise ValueError(msg)
+
+    # Enforce not both loss_fn and loss_hessian_mv are prvovided:
+    if loss_fn is not None and loss_hessian_mv is not None:
+        msg = "Only one of loss_fn or loss_hessian_mv must be provided."
+        raise ValueError(msg)
+
+    loss_hessian_mv = loss_hessian_mv or create_loss_hessian_mv(loss_fn)
+    if vmap_over_data:
+        loss_hessian_mv = jax.vmap(loss_hessian_mv)
+
+    return loss_hessian_mv
