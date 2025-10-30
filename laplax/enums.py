@@ -10,6 +10,11 @@ class LossFn(StrEnum):
     NONE = "none"
 
 
+class FisherType(StrEnum):
+    EMPIRICAL = "empirical"
+    MC = "mc"
+
+
 class CurvApprox(StrEnum):
     FULL = "full"
     DIAGONAL = "diagonal"
