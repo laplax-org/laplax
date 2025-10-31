@@ -1,4 +1,4 @@
-"""Loss Hessians."""
+"""Loss Gradients and Hessians."""
 
 from collections.abc import Callable
 
@@ -12,6 +12,36 @@ from laplax.types import (
     PredArray,
     TargetArray,
 )
+
+def _binary_cross_entropy_gradient(
+    f: PredArray,
+    y: TargetArray,
+    **kwargs: Kwargs,
+) -> Num[Array, "..."]:
+    r"""Compute the Gradient of the binary cross entropy loss w.r.t. the prediction.
+
+    This calculation uses the predicted sigmoid probabilities to compute the gradient analytically.
+
+    The gradient is computed as:
+
+    $$
+    \nabla_f \text{BCE}(y, f) = p - y
+    $$
+
+    where $p = \text{sigmoid}(f) $
+
+    Args:
+        f: Model predictions (logits).
+        y: Ground truth labels.
+        **kwargs: Additional arguments (ignored).
+        
+    Returns:
+        Gradient of the binary cross entropy loss at f.
+    """
+    del kwargs
+    p = jax.nn.sigmoid(f)
+    return p - y
+
 
 def _binary_cross_entropy_hessian_mv(
     jv: PredArray,
@@ -43,6 +73,36 @@ def _binary_cross_entropy_hessian_mv(
     del kwargs
     prob = jax.nn.sigmoid(pred)
     return prob * (1 - prob) * jv
+
+def _cross_entropy_gradient(
+    f: PredArray,
+    y: TargetArray,
+    **kwargs: Kwargs,
+) -> Num[Array, "..."]:
+    r"""Compute the Gradient of the cross entropy loss w.r.t. the prediction.
+
+    This calculation uses the predicted sigmoid probabilities to compute the gradient analytically.
+
+    The gradient is computed as:
+
+    $$
+    \nabla_f \text{CE}(y, f) = p - y
+    $$
+
+    where $p = \text{sigmoid}(f) $
+
+    Args:
+        f: Model predictions (logits).
+        y: Ground truth labels.
+        **kwargs: Additional arguments (ignored).
+        
+    Returns:
+        Gradient of the cross entropy loss at f.
+
+    """
+    del kwargs
+    p = jax.nn.sigmoid(f)
+    return p - y
 
 
 def _cross_entropy_hessian_mv(
@@ -79,6 +139,31 @@ def _cross_entropy_hessian_mv(
     return diag_jv - off_diag_jv
 
 
+def _mse_gradient(
+    f: PredArray,
+    y: TargetArray,
+    **kwargs: Kwargs,
+) -> Num[Array, "..."]:
+    r"""Compute the Gradient of the mean squared error loss w.r.t. the prediction.
+
+    The gradient is computed as:
+
+    $$
+    \nabla_f \text{MSE}(y, f) = 2(f - y)
+    $$
+
+    Args:
+        f: Model predictions.
+        y: Ground truth labels.
+        **kwargs: Additional arguments (ignored).
+        
+    Returns:
+        Gradient of the MSE loss at f.
+
+    """
+    del kwargs
+    return 2*(f - y)
+
 def _mse_hessian_mv(
     jv: PredArray,
     **kwargs: Kwargs,
@@ -104,6 +189,81 @@ def _mse_hessian_mv(
     """
     del kwargs
     return 2 * jv
+
+
+def fetch_loss_gradient_fn(
+    loss_fn: LossFn 
+    | str 
+    | Callable[[PredArray, TargetArray], Num[Array, "..."]]
+    | None,
+    loss_gradient_fn: Callable | None,
+    vmap_over_data: bool,
+    **kwargs: Kwargs,
+) -> Callable[[PredArray, TargetArray], Num[Array, "..."]]:
+    
+    r"""Fetch a loss gradient function from the given arguments.
+
+    If 'loss_gradient_fn' is passed, return this. 
+    If a known 'LossFn' is passed, return analytic gradient.
+    If a custon 'Callable' is passed, use automatic differentiation. 
+
+    Args:
+        loss_fn: Loss function to compute the gradient for. 
+            Supported options are:
+
+            - `LossFn.BINARY_CROSS_ENTROPY` for binary cross-entropy loss.
+            - `LossFn.CROSS_ENTROPY` for cross-entropy loss.
+            - `LossFn.MSE` for mean squared error loss.
+            - A custom callable loss function that takes predictions and targets.
+
+        loss_gradient_fn: Custom precomputed loss gradient to use.
+        vmap_over_data: Whether to vmap over the data.
+        **kwargs: Unused keyword arguments.
+
+    Returns:
+        A function that computes the gradient loss given predictions and ground truth.
+
+    Raises:
+        ValueError: If both `loss_fn` and `loss_gradient_fn` are provided.
+        ValueError: If neither `loss_fn` nor `loss_gradient_fn` are provided.
+        ValueError: When an unsupported loss function is provided.
+    """
+    del kwargs
+
+    if loss_fn is None and loss_gradient_fn is None:
+        msg = "Either loss_fn or loss_gradient_fn must be provided."
+        raise ValueError(msg)
+
+    # Enforce not both loss_fn and loss_gradient_fn are prvovided:
+    if loss_fn is not None and loss_gradient_fn is not None:
+        msg = "Only one of loss_fn or loss_gradient_fn must be provided."
+        raise ValueError(msg)
+
+    if loss_gradient_fn is None:
+        if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
+            loss_gradient_fn = _binary_cross_entropy_gradient
+
+        elif loss_fn == LossFn.CROSS_ENTROPY:
+            loss_gradient_fn = _cross_entropy_gradient
+
+        elif loss_fn == LossFn.MSE:
+            loss_gradient_fn = _mse_gradient
+
+        # Does not support LossFn.None because identity is not scalar-valued,
+        # so there exists no gradient
+        
+        elif isinstance(loss_fn, Callable):
+            grad = jax.grad(loss_fn, argnums=0)
+            loss_gradient_fn = grad
+
+        else:
+            msg = f"Unsupported loss function '{loss_fn}'' provided"
+            raise ValueError(msg)
+
+    if vmap_over_data:
+        loss_gradient_fn = jax.vmap(loss_gradient_fn)
+        return loss_gradient_fn
+
 
 
 def create_loss_hessian_mv(
@@ -137,7 +297,7 @@ def create_loss_hessian_mv(
 
     Raises:
         ValueError: When `loss_fn` is `None`.
-        ValueError: When an unsupported loss function (not of type: `Callable`)is
+        ValueError: When an unsupported loss function (not of type: `Callable`) is
             provided.
     """
     del kwargs
@@ -226,7 +386,7 @@ def fetch_loss_hessian_mv(
     Raises:
         ValueError: If both `loss_fn` and `loss_hessian_mv` are provided.
         ValueError: If neither `loss_fn` nor `loss_hessian_mv` are provided.
-
+        ValueError: When an unsupported loss function is provided.
     """
 
     # Enforce either loss_fn or loss_hessian_mv must be provided:
@@ -239,7 +399,7 @@ def fetch_loss_hessian_mv(
         msg = "Only one of loss_fn or loss_hessian_mv must be provided."
         raise ValueError(msg)
 
-    loss_hessian_mv = loss_hessian_mv or create_loss_hessian_mv(loss_fn)
+    loss_hessian_mv = loss_hessian_mv or create_loss_hessian_mv(loss_fn, **kwargs)
     if vmap_over_data:
         loss_hessian_mv = jax.vmap(loss_hessian_mv)
 
