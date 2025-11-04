@@ -1,23 +1,20 @@
-"""Fisher Matrix Vector Product"""
+"""Fisher Matrix Vector Product."""
 
 from collections.abc import Callable
 
 import jax
-
 from loguru import logger
 
 from laplax.curv.loss import fetch_loss_gradient_fn
-
-
-from laplax.enums import LossFn
-from laplax.enums import FisherType
+from laplax.enums import FisherType, LossFn
 from laplax.types import (
-    Data,
-    Float,
-    Int,
-    ModelFn,
-    Params,
+	Data,
+	Float,
+	Int,
+	ModelFn,
+	Params,
 )
+
 
 def create_fisher_mv_without_data(
 	type: FisherType | str,
@@ -27,11 +24,13 @@ def create_fisher_mv_without_data(
 	factor: Float,
 	*,
 	vmap_over_data: bool = True,
-	loss_gradient_fn: Callable | None = None,
+	loss_grad_fn: Callable | None = None,
 	mc_samples: Int | None = None,
 ) -> Callable[[Params, Data], Params]:
 	r"""Create Fisher matrix-vector product without fixed data.
+
 	Uses either Empirical or Monte Carlo approximation.
+
     #$$
     #\text{factor} \cdot \sum_i J_i^\top \nabla^2_{f(x_i, \theta), f(x_i, \theta)}
     #\mathcal{L}(f(x_i, \theta), y_i) J_i \cdot v
@@ -42,29 +41,30 @@ def create_fisher_mv_without_data(
     #is used to scale the GGN matrix.
 
     This function computes the above expression efficiently without hardcoding the
-    dataset, making it suitable for distributed or batched computations.
+	dataset, making it suitable for distributed or batched computations.
 
-    Args:
-    	type: The type of Fisher approximation. Either 'EMPIRICAL' or 'MC'.
+	Args:
+        type: The type of Fisher approximation. Either 'EMPIRICAL' or 'MC'.
         model_fn: The model's forward pass function.
         params: Model parameters.
         loss_fn: Loss function to use for the Fisher computation.
         factor: Scaling factor for the Fisher computation.
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         loss_grad_fn: The loss gradient function.
-		mc_samples: Number of MC samples to use for type 'MC'. Defaults to 1.
+        mc_samples: Number of MC samples to use for type 'MC'. Defaults to 1.
 
-    Returns:
+	Returns:
         A function that takes a vector and a batch of data, and computes the Fisher
         matrix-vector product.
 
-    Note:
+	Raises:
+        ValueError: When 'type' is neither 'EMPIRICAL' nor 'MC'.
+
+	Note:
         The function assumes as a default that the data has a batch dimension.
-
-    """
-
+	"""
 	# Create loss gradient product
-	loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_gradient_fn, vmap_over_data)
+	loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, vmap_over_data)
 
 	def empirical_fisher_mv(vec, data):
 		def fwd(p):
@@ -74,7 +74,7 @@ def create_fisher_mv_without_data(
 			return model_fn(input=data["input"], params=p)
 
 		# Step 2: Linearize the forward pass
-		z, jvp = jax.linearize(fwd, params)
+		_, jvp = jax.linearize(fwd, params)
 
 		grad = loss_grad_fn(fwd(params), data["target"])
 		vjp = jax.linear_transpose(jvp, vec)
@@ -83,15 +83,19 @@ def create_fisher_mv_without_data(
 		GtJv = grad.T @ Jv
 		GGtJv = grad @ GtJv
 		JtGGtJv = vjp(GGtJv)
-		return JtGGtJv
+		return factor * JtGGtJv
 
 	def mc_fisher_mv(vec, data):
 		raise NotImplementedError
 
 	if type == FisherType.EMPIRICAL:
 		if mc_samples is not None:
-			# This is not an error (does not prevent computation), but is likely unintended -> Warning
-			logger.warning("Parameter 'mc_samples' does not affect FisherType 'EMPIRICAL'. Did you mean to use FisherType 'MC'?")
+			# This is not an error (does not prevent computation)
+			# but is likely unintended -> Warning
+			logger.warning(
+				"Param 'mc_samples' does not affect FisherType 'EMPIRICAL'."
+				"Did you mean 'MC'?"
+				)
 		return empirical_fisher_mv
 
 	if type == FisherType.MC:

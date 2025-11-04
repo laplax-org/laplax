@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 import jax
 
+from laplax.curv.hessian import hvp
 from laplax.enums import LossFn
 from laplax.types import (
     Array,
@@ -13,6 +14,7 @@ from laplax.types import (
     TargetArray,
 )
 
+
 def _binary_cross_entropy_gradient(
     f: PredArray,
     y: TargetArray,
@@ -20,9 +22,8 @@ def _binary_cross_entropy_gradient(
 ) -> Num[Array, "..."]:
     r"""Compute the Gradient of the binary cross entropy loss w.r.t. the prediction.
 
-    This calculation uses the predicted sigmoid probabilities to compute the gradient analytically.
-
-    The gradient is computed as:
+    This calculation uses the predicted sigmoid probabilities to compute the gradient.
+    It is computed as:
 
     $$
     \nabla_f \text{BCE}(y, f) = p - y
@@ -34,7 +35,7 @@ def _binary_cross_entropy_gradient(
         f: Model predictions (logits).
         y: Ground truth labels.
         **kwargs: Additional arguments (ignored).
-        
+
     Returns:
         Gradient of the binary cross entropy loss at f.
     """
@@ -74,6 +75,7 @@ def _binary_cross_entropy_hessian_mv(
     prob = jax.nn.sigmoid(pred)
     return prob * (1 - prob) * jv
 
+
 def _cross_entropy_gradient(
     f: PredArray,
     y: TargetArray,
@@ -81,9 +83,8 @@ def _cross_entropy_gradient(
 ) -> Num[Array, "..."]:
     r"""Compute the Gradient of the cross entropy loss w.r.t. the prediction.
 
-    This calculation uses the predicted sigmoid probabilities to compute the gradient analytically.
-
-    The gradient is computed as:
+    This calculation uses the predicted sigmoid probabilities to compute the gradient.
+    It is computed as:
 
     $$
     \nabla_f \text{CE}(y, f) = p - y
@@ -95,7 +96,7 @@ def _cross_entropy_gradient(
         f: Model predictions (logits).
         y: Ground truth labels.
         **kwargs: Additional arguments (ignored).
-        
+
     Returns:
         Gradient of the cross entropy loss at f.
 
@@ -156,13 +157,14 @@ def _mse_gradient(
         f: Model predictions.
         y: Ground truth labels.
         **kwargs: Additional arguments (ignored).
-        
+
     Returns:
         Gradient of the MSE loss at f.
 
     """
     del kwargs
-    return 2*(f - y)
+    return 2 * (f - y)
+
 
 def _mse_hessian_mv(
     jv: PredArray,
@@ -192,23 +194,22 @@ def _mse_hessian_mv(
 
 
 def fetch_loss_gradient_fn(
-    loss_fn: LossFn 
-    | str 
+    loss_fn: LossFn
+    | str
     | Callable[[PredArray, TargetArray], Num[Array, "..."]]
     | None,
     loss_gradient_fn: Callable | None,
     vmap_over_data: bool,
     **kwargs: Kwargs,
 ) -> Callable[[PredArray, TargetArray], Num[Array, "..."]]:
-    
     r"""Fetch a loss gradient function from the given arguments.
 
-    If 'loss_gradient_fn' is passed, return this. 
+    If 'loss_gradient_fn' is passed, return this.
     If a known 'LossFn' is passed, return analytic gradient.
-    If a custon 'Callable' is passed, use automatic differentiation. 
+    If a custon 'Callable' is passed, use automatic differentiation.
 
     Args:
-        loss_fn: Loss function to compute the gradient for. 
+        loss_fn: Loss function to compute the gradient for.
             Supported options are:
 
             - `LossFn.BINARY_CROSS_ENTROPY` for binary cross-entropy loss.
@@ -251,7 +252,7 @@ def fetch_loss_gradient_fn(
 
         # Does not support LossFn.None because identity is not scalar-valued,
         # so there exists no gradient
-        
+
         elif isinstance(loss_fn, Callable):
             grad = jax.grad(loss_fn, argnums=0)
             loss_gradient_fn = grad
@@ -262,8 +263,8 @@ def fetch_loss_gradient_fn(
 
     if vmap_over_data:
         loss_gradient_fn = jax.vmap(loss_gradient_fn)
-        return loss_gradient_fn
 
+    return loss_gradient_fn
 
 
 def create_loss_hessian_mv(
@@ -358,9 +359,8 @@ def fetch_loss_hessian_mv(
     vmap_over_data: bool,
     **kwargs: Kwargs,
 ) -> Callable:
-    r"""
-    Encapsulates fetching the loss hessian mv given a loss_fn or loss_hessian_mv.
-    
+    r"""Encapsulates fetching the loss hessian mv given a loss_fn or loss_hessian_mv.
+
     For predefined loss functions like cross-entropy and mean squared error, the
     function computes their corresponding Hessian-vector products using efficient
     formulations. For custom loss functions, the Hessian-vector product is computed via
@@ -379,7 +379,7 @@ def fetch_loss_hessian_mv(
         loss_hessian_mv: Precomputed loss hessian mv to use
         vmap_over_data: Whether to vmap over the data
         **kwargs: Unused keyword arguments.
-    
+
     Returns:
         A function that computes the Hessian-vector product for the given loss function.
 
@@ -388,7 +388,6 @@ def fetch_loss_hessian_mv(
         ValueError: If neither `loss_fn` nor `loss_hessian_mv` are provided.
         ValueError: When an unsupported loss function is provided.
     """
-
     # Enforce either loss_fn or loss_hessian_mv must be provided:
     if loss_fn is None and loss_hessian_mv is None:
         msg = "Either loss_fn or loss_hessian_mv must be provided."

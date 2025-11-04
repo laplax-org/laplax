@@ -4,10 +4,8 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from laplax.enums import LossFn
 from laplax.curv.loss import create_loss_hessian_mv
-
-
+from laplax.enums import LossFn
 
 # ---------------------------------------------------------------
 # Loss Hessian

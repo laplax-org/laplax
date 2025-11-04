@@ -4,9 +4,9 @@ from collections.abc import Callable
 
 import jax
 
+from laplax.curv.loss import fetch_loss_hessian_mv
 from laplax.enums import LossFn
 from laplax.types import (
-    Array,
     Data,
     Float,
     Int,
@@ -14,10 +14,6 @@ from laplax.types import (
     Params,
 )
 from laplax.util.tree import mul
-
-from laplax.curv.loss import fetch_loss_hessian_mv
-
-
 
 # -----------------------------------------------------------------------------------
 # GGN Matrix-vector product factories

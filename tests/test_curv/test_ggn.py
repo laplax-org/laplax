@@ -7,7 +7,6 @@ from laplax.curv.ggn import create_ggn_mv
 
 from .cases.rosenbrock import RosenbrockCase
 
-
 # ---------------------------------------------------------------
 # GGN - Rosenbrock
 # ---------------------------------------------------------------
