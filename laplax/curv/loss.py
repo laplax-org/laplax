@@ -3,6 +3,7 @@
 from collections.abc import Callable
 
 import jax
+import jax.numpy as jnp
 
 from laplax.curv.hessian import hvp
 from laplax.enums import LossFn
@@ -87,14 +88,14 @@ def _cross_entropy_gradient(
     It is computed as:
 
     $$
-    \nabla_f \text{CE}(y, f) = p - y
+    \nabla_f \text{CE}(y, f) = p - onehot(y)
     $$
 
     where $p = \text{sigmoid}(f) $
 
     Args:
         f: Model predictions (logits).
-        y: Ground truth labels.
+        y: Ground truth label.
         **kwargs: Additional arguments (ignored).
 
     Returns:
@@ -102,8 +103,9 @@ def _cross_entropy_gradient(
 
     """
     del kwargs
-    p = jax.nn.sigmoid(f)
-    return p - y
+    p = jax.nn.softmax(f)
+    p = p.at[y].subtract(1)
+    return p
 
 
 def _cross_entropy_hessian_mv(
@@ -258,7 +260,7 @@ def fetch_loss_gradient_fn(
             loss_gradient_fn = grad
 
         else:
-            msg = f"Unsupported loss function '{loss_fn}'' provided"
+            msg = f"Unsupported loss function '{loss_fn}' provided"
             raise ValueError(msg)
 
     if vmap_over_data:
