@@ -4,11 +4,58 @@ import jax
 import jax.numpy as jnp
 import optax
 
-from laplax.curv.loss import create_loss_hessian_mv
+from laplax.curv.loss import create_loss_hessian_mv, fetch_loss_gradient_fn
 from laplax.enums import LossFn
 
 # ---------------------------------------------------------------
-# Loss Hessian
+# Loss Gradients
+# ---------------------------------------------------------------
+
+
+def test_single_binary_cross_entropy_loss_gradient():
+    key = jax.random.key(0)
+    target = jnp.zeros(1)
+    logits = jax.random.normal(key, (1,))
+
+    # Set loss gradient via autodiff
+    BCE = lambda f,y: optax.sigmoid_binary_cross_entropy(f,y)[0]
+    grad_autodiff = jax.grad(
+        BCE,
+        )(logits, target)
+
+        # Set loss gradient via laplax
+    grad_fn_laplax = fetch_loss_gradient_fn(
+        LossFn.BINARY_CROSS_ENTROPY,
+        None,
+        vmap_over_data = False)
+    grad_laplax = grad_fn_laplax(logits, target)
+    assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
+
+
+def test_binary_cross_entropy_loss_gradient_vmap():
+    key = jax.random.key(0)
+    target = jnp.zeros(5)
+    logits = jax.random.normal(key, (5,))
+
+    # Set loss gradient via autodiff
+    BCE = lambda f,y: optax.sigmoid_binary_cross_entropy(f,y)
+    grad_autodiff = jax.vmap(jax.grad(
+        BCE,
+        ))(logits, target)
+
+        # Set loss gradient via laplax
+    grad_fn_laplax = fetch_loss_gradient_fn(
+        LossFn.BINARY_CROSS_ENTROPY,
+        None,
+        vmap_over_data = True)
+    grad_laplax = grad_fn_laplax(logits, target)
+    print("Test called")
+    print(grad_laplax)
+    assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
+
+
+# ---------------------------------------------------------------
+# Loss Hessians
 # ---------------------------------------------------------------
 
 
