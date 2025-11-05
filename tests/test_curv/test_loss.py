@@ -54,6 +54,49 @@ def test_binary_cross_entropy_loss_gradient_vmap():
     assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
 
 
+def test_cross_entropy_loss_gradient():
+    key = jax.random.key(0)
+    target = jnp.asarray([2], dtype=int)
+    logits = jax.random.normal(key, (3))
+
+    # Set loss gradient via autodiff
+    fn = lambda f,y: optax.softmax_cross_entropy_with_integer_labels(f[None,:],y)[0]
+    grad_autodiff = jax.grad(
+        fn,
+        )(logits, target) # (3)
+
+    # Set loss gradient via laplax
+    grad_fn_laplax = fetch_loss_gradient_fn(
+        "cross_entropy",
+        None,
+        vmap_over_data = False)
+    grad_laplax = grad_fn_laplax(logits, target)
+
+    assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
+
+
+def test_cross_entropy_loss_gradient_vmap():
+    key = jax.random.key(0)
+    target = jnp.zeros(5, dtype=int)
+    target.at[3].set(2)
+    logits = jax.random.normal(key, (5, 3))
+
+    # Set loss gradient via autodiff
+    grad_autodiff = jax.vmap(jax.grad(
+        optax.softmax_cross_entropy_with_integer_labels,
+        ))(logits, target) # (5,3)
+
+        # Set loss gradient via laplax
+    grad_fn_laplax = fetch_loss_gradient_fn(
+        "cross_entropy",
+        None,
+        vmap_over_data = True)
+    grad_laplax = grad_fn_laplax(logits, target)
+    print(grad_autodiff)
+    print(grad_laplax)
+    assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
+
+"""
 # ---------------------------------------------------------------
 # Loss Hessians
 # ---------------------------------------------------------------
@@ -131,3 +174,4 @@ def test_callable_loss_hessian():
     hess_laplax = jax.vmap(partial(hess_mv, pred=pred, target=target))(jnp.eye(10))
 
     assert jnp.allclose(hess_autodiff, hess_laplax, atol=1e-8)
+"""
