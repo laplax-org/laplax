@@ -3,7 +3,6 @@
 from collections.abc import Callable
 
 import jax
-import jax.numpy as jnp
 
 from laplax.curv.hessian import hvp
 from laplax.enums import LossFn

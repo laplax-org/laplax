@@ -43,7 +43,7 @@ def create_fisher_mv_without_data(
     This function computes the above expression efficiently without hardcoding the
         dataset, making it suitable for distributed or batched computations.
 
-        Args:
+    Args:
         type: The type of Fisher approximation. Either 'EMPIRICAL' or 'MC'.
         model_fn: The model's forward pass function.
         params: Model parameters.
@@ -53,14 +53,14 @@ def create_fisher_mv_without_data(
         loss_grad_fn: The loss gradient function.
         mc_samples: Number of MC samples to use for type 'MC'. Defaults to 1.
 
-        Returns:
+    Returns:
         A function that takes a vector and a batch of data, and computes the Fisher
         matrix-vector product.
 
-        Raises:
+    Raises:
         ValueError: When 'type' is neither 'EMPIRICAL' nor 'MC'.
 
-        Note:
+    Note:
         The function assumes as a default that the data has a batch dimension.
     """
     # Create loss gradient product
