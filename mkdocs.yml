@@ -31,9 +31,9 @@ nav:
   - Background: background.md
   - Design Philosophy: design_philosophy.md
   - Examples:
-    - Tiny example: examples/0000_tiny_laplax.ipynb
-    - Laplax for regression: examples/0001_laplax_for_regression.ipynb
-    - Laplax on MNIST: examples/0002_laplax_on_mnist.ipynb
+    - Tiny example: _examples/0000_tiny_laplax.md
+    - Laplax for regression: _examples/0001_laplax_for_regression.md
+    - Laplax on MNIST: _examples/0002_laplax_on_mnist.md
   - API Reference:
     - Overview: api.md
     - Modules:
@@ -91,12 +91,9 @@ plugins:
               heading_level: 3
               filters: ["!^_"]
               docstring_section_style: "list"
-  - mknotebooks:
-      execute: false
-      write_markdown: true
-      enable_default_jupyter_cell_styling: true
   - gen-files:
       scripts:
+        - docs/convert_examples.py
         - docs/gen_api.py
 
 markdown_extensions:

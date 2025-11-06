@@ -5,10 +5,7 @@
 
 [project]
 name = "laplax"
-authors = [
-    { name = "Tobias Weber" },
-    { name = "Bálint Mucsányi" },
-]
+authors = [{ name = "Tobias Weber" }, { name = "Bálint Mucsányi" }]
 urls = { Repository = "https://github.com/laplax-org/laplax" }
 description = "Laplace approximations in JAX."
 classifiers = [
@@ -30,7 +27,7 @@ classifiers = [
 dependencies = ["jax", "jaxtyping", "loguru", "tqdm"]
 version = "0.0.2"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = { file = "LICENSE" }
 requires-python = ">=3.11,<3.14"
 
 [project.optional-dependencies]
@@ -63,11 +60,12 @@ notebooks = [
     "tueplots",
 ]
 docs = [
+    "jupytext",
     "mkdocs",
     "mkdocs-material",
     "mkdocstrings",
     "mkdocstrings-python",
-    "mknotebooks",
+    "nbconvert",
     "pytkdocs-tweaks",
     "mkdocs-autorefs",
     "mkdocs-gen-files",
@@ -102,59 +100,59 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = [
-    "ARG",   # flake8-unused-arguments
+    "ARG", # flake8-unused-arguments
     "ASYNC", # flake8-async
-    "ANN",   # flake8-annotations
-    "B",     # flake8-bugbear
-    "BLE",   # flake8-blind-except
-    "C4",    # flake8-comprehensions
-    "C90",   # mccabe
-    "COM",   # flake8-commas
-    "D",     # pydocstyle
-    "DOC",   # pydoclint
-    "DTZ",   # flake8-datetimez
-    "E",     # pycodestyle error
-    "EM",    # flake8-errmsg
-    "ERA",   # eradicate
-    "F",     # Pyflakes
-    "FA",    # flake8-future-annotations
-    "FBT",   # flake8-boolean-trap
-    "FLY",   # flynt
-    "FURB",  # refurb
-    "G",     # flake80logging-format
-    "I",     # isort
-    "ICN",   # flake8-import-conventions
-    "INP",   # flake8-no-pep420
-    "INT",   # flake8-gettext
-    "ISC",   # flake8-implicit-str-concat
-    "LOG",   # flake8-logging
-    "N",     # pep8-naming
-    "NPY",   # NumPy
-    "PD",    # pandas-vet
-    "PERF",  # Perflint
-    "PGH",   # pygrep-hooks
-    "PIE",   # flake8-pie
-    "PL",    # Pylint
-    "PT",    # flake8-pytest-style
-    "PTH",   # flake8-use-pathlib
-    "PYI",   # flake8-pyi
-    "Q",     # flake8-quotes
-    "RET",   # flake8-return
-    "RSE",   # flake8-raise
-    "RUF",   # Ruff
-    "S",     # flake8-bandit
-    "SLOT",  # flake8-slots
-    "T10",   # flake8-debugger
-    "T20",   # flake8-print
-    "TC",    # flake8-type-checking
-    "TD",    # flake8-todos
-    "TID",   # flake8-tidy-imports
-    "TRY",   # tryceratops
-    "SIM",   # flake8-simplify
-    "SLF",   # flake8-self
-    "UP",    # pyupgrade
-    "W",     # pycodestyle warning
-    "YTT",   # flake8-2020
+    "ANN", # flake8-annotations
+    "B", # flake8-bugbear
+    "BLE", # flake8-blind-except
+    "C4", # flake8-comprehensions
+    "C90", # mccabe
+    "COM", # flake8-commas
+    "D", # pydocstyle
+    "DOC", # pydoclint
+    "DTZ", # flake8-datetimez
+    "E", # pycodestyle error
+    "EM", # flake8-errmsg
+    "ERA", # eradicate
+    "F", # Pyflakes
+    "FA", # flake8-future-annotations
+    "FBT", # flake8-boolean-trap
+    "FLY", # flynt
+    "FURB", # refurb
+    "G", # flake80logging-format
+    "I", # isort
+    "ICN", # flake8-import-conventions
+    "INP", # flake8-no-pep420
+    "INT", # flake8-gettext
+    "ISC", # flake8-implicit-str-concat
+    "LOG", # flake8-logging
+    "N", # pep8-naming
+    "NPY", # NumPy
+    "PD", # pandas-vet
+    "PERF", # Perflint
+    "PGH", # pygrep-hooks
+    "PIE", # flake8-pie
+    "PL", # Pylint
+    "PT", # flake8-pytest-style
+    "PTH", # flake8-use-pathlib
+    "PYI", # flake8-pyi
+    "Q", # flake8-quotes
+    "RET", # flake8-return
+    "RSE", # flake8-raise
+    "RUF", # Ruff
+    "S", # flake8-bandit
+    "SLOT", # flake8-slots
+    "T10", # flake8-debugger
+    "T20", # flake8-print
+    "TC", # flake8-type-checking
+    "TD", # flake8-todos
+    "TID", # flake8-tidy-imports
+    "TRY", # tryceratops
+    "SIM", # flake8-simplify
+    "SLF", # flake8-self
+    "UP", # pyupgrade
+    "W", # pycodestyle warning
+    "YTT", # flake8-2020
 ]
 ignore = [
     # Conflicting lint rules with Ruff's formatter
@@ -241,12 +239,15 @@ ignore = [
 
 [tool.ruff.lint.extend-per-file-ignores]
 "tests/*.py" = [
-    "S101",  # Use of assert is allowed in test files
-    "INP001",  # The tests folder is not an implicit namespace package
+    "S101", # Use of assert is allowed in test files
+    "INP001", # The tests folder is not an implicit namespace package
 ]
-"examples/*.py" = ["INP001"]  # The examples folder is not an implicit namespace package
-"docs/*.py" = ["INP001"]  # The docs folder is not an implicit namespace package
-"*.ipynb" = ["T201"]    # Print statements are fine in notebooks
+"examples/*.py" = [
+    "INP001", # The examples folder is not an implicit namespace package
+    "T201", # Print statements are fine in examples
+]
+"docs/*.py" = ["INP001"] # The docs folder is not an implicit namespace package
+"*.ipynb" = ["T201"] # Print statements are fine in notebooks
 
 [tool.ruff.lint.mccabe]
 max-complexity = 18

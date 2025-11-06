@@ -16,7 +16,7 @@ Use `pip install laplax`.
 
 ## Minimal example
 
-The following [tiny `laplax` example](examples/0000_tiny_laplax.ipynb) shows how to use the `laplax` package to perform a linearized Laplace approximation on a two-parameter ReLU network $\mathcal{D}(x,\theta)=\theta_2\,\text{ReLU}(\theta_1 x+1)$ for $\mathcal{D}=\{(1,-1),(-1,-1)\}$ and visualize the weight space uncertainty in the loss landscape.
+The following [tiny `laplax` example](_examples/0000_tiny_laplax.md) shows how to use the `laplax` package to perform a linearized Laplace approximation on a two-parameter ReLU network $\mathcal{D}(x,\theta)=\theta_2\,\text{ReLU}(\theta_1 x+1)$ for $\mathcal{D}=\{(1,-1),(-1,-1)\}$ and visualize the weight space uncertainty in the loss landscape.
 
 <div style="display: flex; flex-direction: column; align-items: center; margin: 2em 0;">
   <img src="./images/laplax_figure_1.png" alt="Laplace approximation on a two-parameter ReLU network" style="width: 50vw; max-width: 600px; height: auto; box-shadow: 0 4px 24px rgba(0,0,0,0.08); border-radius: 8px;">
@@ -55,9 +55,9 @@ plot_figure_1(model_fn, params, curv)
 
 We provide a high-level interface for performing Laplace approximation on a model and expose additional is low-level building blocks. As working examples, we include both approaches as tutorials:
 
-- [Tiny example](examples/0000_tiny_laplax.ipynb) (cf. plot above)
-- [Laplax for regression](examples/0001_laplax_for_regression.ipynb)
-- [Laplax on MNIST](examples/0002_laplax_on_mnist.ipynb)
+- [Tiny example](_examples/0000_tiny_laplax.md) (cf. plot above)
+- [Laplax for regression](_examples/0001_laplax_for_regression.md)
+- [Laplax on MNIST](_examples/0002_laplax_on_mnist.md)
 
 Both APIs and all available options are documented in the [Manual](api.md). For each submodule, we provide a short overview as well as a comprehensive list of all available functions.
 
