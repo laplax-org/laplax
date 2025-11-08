@@ -21,8 +21,14 @@ jobs:
       - name: Install documentation dependencies
         run: make install-docs
 
+      - name: Install notebook dependencies
+        run: make install-notebooks
+
       - name: Install pandoc
         run: sudo apt-get update && sudo apt-get install -y pandoc
+
+      - name: Install LaTeX
+        run: sudo apt-get install -y texlive-latex-extra dvipng cm-super
 
       - name: Deploy documentation
         run: uv run mkdocs gh-deploy --force
