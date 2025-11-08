@@ -22,6 +22,7 @@ local_*
 *.txt
 *.egg-info
 *.pyc
+*.bak
 
 # Example notebooks
 *examples/data/*
