@@ -467,7 +467,8 @@ def create_fsp_posterior_kronecker(
     # Combine all Kronecker factors (spatial + function)
     all_factors = spatial_lanczos_results + function_lanczos_results
     all_mvs = [make_mv(factor) for factor in all_factors]
-    all_layouts = [factor.shape[0] for factor in all_factors]
+    # Use column dimension (shape[1]) since MVP input size = number of columns
+    all_layouts = [factor.shape[1] for factor in all_factors]
 
     # Create efficient Kronecker MVP (lazy, no intermediate densification)
     k_inv_sqrt_mv = util_mv.kronecker_product_factors(all_mvs, all_layouts)
