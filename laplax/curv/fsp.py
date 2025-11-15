@@ -363,7 +363,7 @@ def create_fsp_posterior_kronecker(
     prior_variance: jnp.ndarray,
     n_chunks: int,
     *,
-    spatial_max_iters: list[int] | None = None,
+    spatial_max_iters: list[int] | None = [8, 3],
     is_classification: bool = False,
     chunk_mode: str = "scan",
     regression_noise_scale: float | None = None,
@@ -432,17 +432,13 @@ def create_fsp_posterior_kronecker(
     k_inv_sqrt_mv = util_mv.kronecker_product_factors(all_mvs, all_layouts)
     rank = int(jnp.prod(jnp.array(all_layouts)))
 
-    # Build k_inv_sqrt_dense column-by-column using lax.map
-    # This avoids vmap's constant capture issue while keeping memory efficient
     def get_column(idx):
         """Extract column idx from Kronecker MVP without densifying full matrix."""
         return util_mv.column(k_inv_sqrt_mv, layout=rank, idx=idx, mv_jittable=False)
 
     # Use lax.map (sequential) instead of vmap to avoid constant capture
     k_inv_sqrt_cols = jax.lax.map(get_column, jnp.arange(rank))  # (rank, N_out)
-    k_inv_sqrt_dense = k_inv_sqrt_cols.T.reshape(
-        n_function, *output_shape[1:], rank
-    )
+    k_inv_sqrt_dense = k_inv_sqrt_cols.T.reshape(n_functions, *output_shape[1:], rank)
 
     # Use original _accumulate_M_over_chunks (processes all columns at once)
     M = _accumulate_M_over_chunks(

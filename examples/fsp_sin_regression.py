@@ -15,6 +15,7 @@ import optax
 from flax import nnx
 
 from laplax.curv import KernelStructure, create_fsp_posterior
+from laplax.util.context_points import select_context_points
 from laplax.util.objective import create_fsp_objective
 
 jax.config.update("jax_enable_x64", True)
@@ -224,7 +225,7 @@ def rbf_kernel(x1, x2, lengthscale=1.0, variance=1.0):
     return variance * jnp.exp(-0.5 / lengthscale**2 * sqdist)
 
 
-def periodic_kernel(x1, x2, lengthscale=6.0, variance=1.0, period=2.0):
+def periodic_kernel(x1, x2, lengthscale=1.0, variance=1.0, period=2.0):
     """Periodic kernel function for periodic data like sine waves.
 
     k(x1, x2) = variance * exp(-||x1 - x2||^2 / (2 * lengthscale^2))
@@ -237,7 +238,6 @@ def periodic_kernel(x1, x2, lengthscale=6.0, variance=1.0, period=2.0):
 def create_kernel_matrix(x_context, lengthscale=1.0, variance=1.0):
     """Create RBF kernel matrix."""
     K = periodic_kernel(x_context, x_context, lengthscale, variance, period=1.0)
-    # Add jitter for numerical stability
     K = K + 1e-6 * jnp.eye(K.shape[0])
     return K
 
@@ -263,20 +263,18 @@ def main():
     print(f"   Training data shape: X={X_train.shape}, y={y_train.shape}")
 
     # Set up context points and kernel for FSP training
-    x_context = X_train  # Use all training data as context
+    x_context = jnp.linspace(-1.5, 1.5, 200).reshape(-1, 1)
 
     lengthscale = 1.0
     variance = 1.0
-    period = 1.01
+    period = 1.00
 
     def prior_cov_kernel(x1, x2):
         """Prior covariance kernel for FSP objective."""
         K = periodic_kernel(
             x1, x2, lengthscale=lengthscale, variance=variance, period=period
         )
-        # Add jitter for numerical stability when computing K(context, context)
-        # The objective function will handle this internally
-        K = K + 1e-5 * jnp.eye(K.shape[0])
+        K = K + 1e-6 * jnp.eye(K.shape[0])
         return K
 
     # Train model with FSP objective
@@ -296,7 +294,7 @@ def main():
         x_context,
         prior_mean,
         prior_cov_kernel,
-        num_epochs=1000,
+        num_epochs=100,
         learning_rate=0.01,
     )
 
