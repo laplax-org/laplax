@@ -18,6 +18,57 @@ from laplax.util.tree import (
 
 
 @singledispatch
+def column(
+    mv: Callable,
+    layout: Layout,
+    idx: int,
+    *,
+    mv_jittable: bool = True,
+) -> Array:
+    """Extract a single column from a matrix represented by an MVP function.
+
+    This function computes column `idx` of a matrix using a basis vector and a
+    matrix-vector product (MVP) function.
+
+    Args:
+        mv: A callable that implements the MVP
+        layout: Specifies the structure of the matrix:
+            - int: The size of the matrix (for flat MVP functions)
+            - PyTree: A structure to generate basis vectors
+        idx: Column index to extract
+        mv_jittable: Whether to JIT compile the basis vector generator
+
+    Returns:
+        jax.Array: The idx-th column of the matrix
+
+    Raises:
+        TypeError: If `layout` is not provided when `mv` is a callable
+    """
+    if isinstance(layout, int):
+        size = layout
+
+        @jax.jit
+        def get_basis_vec(i: int) -> jax.Array:
+            zero_vec = jnp.zeros(size)
+            return zero_vec.at[i].set(1.0)
+
+    else:  # PyTree layout
+        size = get_size(layout)
+
+        @jax.jit
+        def get_basis_vec(i: int) -> PyTree:
+            return basis_vector_from_index(i, layout)
+
+    def col_fn(i):
+        return mv(get_basis_vec(i))
+
+    if mv_jittable:
+        col_fn = jax.jit(col_fn)
+
+    return col_fn(idx)
+
+
+@singledispatch
 def diagonal(
     mv: Callable | jnp.ndarray,
     layout: Layout | None = None,

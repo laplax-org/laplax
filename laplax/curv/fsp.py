@@ -428,37 +428,66 @@ def create_fsp_posterior_kronecker(
     # Use column dimension (shape[1]) since MVP input size = number of columns
     all_layouts = [factor.shape[1] for factor in all_factors]
 
-    k_inv_sqrt_mv = jax.jit(util_mv.kronecker_product_factors(all_mvs, all_layouts))
+    # Create efficient Kronecker MVP (lazy, no intermediate densification)
+    k_inv_sqrt_mv = util_mv.kronecker_product_factors(all_mvs, all_layouts)
+    rank = int(jnp.prod(jnp.array(all_layouts)))
 
-    # Materialize to dense only when needed (using efficient to_dense)
-    total_size = int(jnp.prod(jnp.array(all_layouts)))
-    k_inv_sqrt = util_mv.to_dense(k_inv_sqrt_mv, layout=total_size)
+    # Compute M = J^T K^{-1/2} column-by-column without densifying K^{-1/2}
+    # This avoids creating the large dense matrix k_inv_sqrt
 
-    n_function = x_context.shape[0]
-    rank = k_inv_sqrt.shape[-1]
+    # Setup for parameter flattening
+    flatten_params, unflatten_params = create_pytree_flattener(params)
+    dim_params = flatten_params(params).size
 
-    k_inv_sqrt_dense = k_inv_sqrt.reshape(
-        n_function,
-        *output_shape[1:],
-        rank,
+    # Create dummy M pytree for partial flattener
+    dummy_M = jax.tree.map(
+        lambda p: jnp.zeros(p.shape + (rank,), dtype=p.dtype), params
     )
+    flatten_M, unflatten_M = create_partial_pytree_flattener(dummy_M)
 
-    M = _accumulate_M_over_chunks(
-        model_fn,
-        params,
-        x_context,
-        k_inv_sqrt_dense,
-        n_chunks_eff,
-        mode="map",  # Use map for memory efficiency (lax.map over chunks)
-    )
+    # Chunk x_context for memory efficiency
+    x_chunks = jnp.split(x_context, n_chunks_eff, axis=0)
 
-    flatten, unflatten = create_partial_pytree_flattener(M)
-    M_flat = flatten(M)
+    @jax.jit
+    def compute_M_column(idx: int) -> jnp.ndarray:
+        """Compute column idx of M_flat = J^T K^{-1/2} using matrix-free Kronecker MVP."""
+        # 1) Get column idx of K^{-1/2} via Kronecker MVP (no densification)
+        v_flat = util_mv.column(k_inv_sqrt_mv, layout=rank, idx=idx, mv_jittable=False)
+
+        # 2) Reshape to output shape
+        v = v_flat.reshape(output_shape)  # (B, S1, ..., C)
+
+        # 3) Accumulate J^T @ v over chunks
+        v_chunks = jnp.split(v, n_chunks_eff, axis=0)
+
+        def chunk_body(M_col_accum, data):
+            xs_chunk, v_chunk = data
+            # Treat v_chunk as a single "column" for _M_batch
+            L = v_chunk[..., None]  # add trailing rank dim of size 1
+            M_tree_chunk = _M_batch(model_fn, params, xs_chunk, L)
+            # Remove trailing dim and flatten to params
+            M_tree_single = jax.tree.map(lambda x: x[..., 0], M_tree_chunk)
+            M_col_chunk = flatten_params(M_tree_single)
+            return M_col_accum + M_col_chunk, None
+
+        M_col_init = jnp.zeros(dim_params, dtype=v.dtype)
+        M_col, _ = jax.lax.scan(
+            chunk_body,
+            M_col_init,
+            (jnp.array(x_chunks), jnp.array(v_chunks)),
+        )
+        return M_col  # shape: (dim_params,)
+
+    # 4) Build full M_flat by computing all columns
+    col_indices = jnp.arange(rank)
+    M_flat = jax.vmap(compute_M_column, in_axes=0, out_axes=1)(col_indices)
+    # shape: (dim_params, rank)
 
     # Truncated left SVD
     _u, s = _truncated_left_svd(M_flat)
 
-    u = unflatten(_u)
+    # Unflatten U to pytree (without trailing rank dim)
+    u = unflatten_params(_u)
     uTggnu = compute_ggn_quadratic_form(
         model_fn=model_fn,
         params=params,
@@ -491,7 +520,7 @@ def create_fsp_posterior_kronecker(
     logger.info(f"FSP posterior using {truncation_idx} / {parameter_count} components.")
     low_rank_terms = LowRankTerms(U, S, scalar=0.0)
 
-    flatten_params, unflatten_params = create_pytree_flattener(params)
+    # Note: flatten_params/unflatten_params already created above
     posterior = Posterior(
         state=posterior_state,
         cov_mv=lambda state: lambda x: unflatten_params(
