@@ -186,3 +186,39 @@ def kronecker(
             return Z.T.reshape(-1)
 
     return kronecker_mv
+
+
+def kronecker_product_factors(factors_mv: list[Callable], factors_layout: list[Layout]) -> Callable:
+    """Create an efficient Kronecker product from multiple factors.
+
+    Computes (A_1 ⊗ A_2 ⊗ ... ⊗ A_n) @ v efficiently without forming the full product.
+
+    Args:
+        factors_mv: List of matrix-vector product functions, ordered from left to right
+        factors_layout: List of layout specifications for each factor
+
+    Returns:
+        A callable that computes the full Kronecker product matrix-vector product
+
+    Example:
+        >>> # For (A ⊗ B ⊗ C) @ v
+        >>> mv_kron = kronecker_product_factors([mv_a, mv_b, mv_c], [n, m, k])
+        >>> result = mv_kron(v)
+    """
+    if len(factors_mv) == 1:
+        return factors_mv[0]
+
+    if len(factors_mv) == 2:
+        return kronecker(factors_mv[0], factors_mv[1], factors_layout[0], factors_layout[1])
+
+    # For multiple factors, compose pairwise from right to left
+    # (A ⊗ B ⊗ C) = ((A ⊗ B) ⊗ C)
+    result_mv = factors_mv[-1]
+    result_layout = factors_layout[-1]
+
+    for i in range(len(factors_mv) - 2, -1, -1):
+        result_mv = kronecker(factors_mv[i], result_mv, factors_layout[i], result_layout)
+        # Update layout to reflect the Kronecker product size
+        result_layout = get_size(factors_layout[i]) * get_size(result_layout)
+
+    return result_mv
