@@ -370,8 +370,23 @@ def compute_ggn_quadratic_form(
     U: Params,  # pytree with multiple "columns"
     is_classification: bool = False,
     regression_noise_scale: float | None = None,
+    col_chunk_size: int = 64,
+    vmap_over_data: bool = True,
 ) -> Array:
     """Compute U^T @ GGN @ U where U contains multiple vectors.
+
+    Uses single linearization + chunked column processing to avoid O(k) repeated
+    linearizations and reduce memory footprint.
+
+    Args:
+        model_fn: Model function
+        params: Model parameters
+        x_context: Input data
+        U: Pytree with multiple columns (trailing rank dimension)
+        is_classification: Whether this is a classification task
+        regression_noise_scale: Noise scale for regression (if known)
+        col_chunk_size: Number of columns to process in each chunk
+        vmap_over_data: Whether to vmap over data dimension
 
     Returns:
         Array of shape (rank, rank) representing the quadratic form.
@@ -387,28 +402,56 @@ def compute_ggn_quadratic_form(
         dummy_targets = jnp.zeros_like(y0)
         loss_fn = LossFn.MSE
 
-    data = {"input": x_context, "target": dummy_targets}
+    # Create loss Hessian MVP and linearize model ONCE
+    loss_hessian_mv = create_loss_hessian_mv(loss_fn)
+    if vmap_over_data:
+        loss_hessian_mv = jax.vmap(loss_hessian_mv)
 
-    ggn_mv = create_ggn_mv(
-        model_fn=model_fn,
-        params=params,
-        data=data,
-        loss_fn=loss_fn,
-        vmap_over_data=True,
-    )
+    # Single linearization for all columns
+    def fwd(p):
+        if vmap_over_data:
+            return jax.vmap(lambda x: model_fn(x, p))(x_context)
+        else:
+            return model_fn(x_context, p)
 
+    z, jvp_fn = jax.linearize(fwd, params)
+    vjp_fn = jax.linear_transpose(jvp_fn, params)
+
+    # Flatten U for column-wise processing
     flatten_partial, _ = create_partial_pytree_flattener(U)
-    U_flat = flatten_partial(U)
+    U_flat = flatten_partial(U)  # shape: (P, k)
 
-    # Use regular flattener for individual columns (no column dimension)
+    # Flatten helpers for individual columns
     flatten_single, unflatten_single = create_pytree_flattener(params)
 
-    def compute_ggn_column(u_col):
-        u_i = unflatten_single(u_col)
-        ggn_u_i = ggn_mv(u_i)
-        return flatten_single(ggn_u_i)
+    # Process columns in chunks to reduce memory
+    k = U_flat.shape[1]
 
-    GGN_U = jax.vmap(compute_ggn_column, in_axes=1, out_axes=1)(U_flat)
+    def process_column_block(U_block):
+        """Process a chunk of columns: GGN @ U_block."""
+
+        def single_column(u_col):
+            # Unflatten column to pytree
+            u_i = unflatten_single(u_col)
+            # Apply J (Jacobian)
+            Ju = jvp_fn(u_i)
+            # Apply H (loss Hessian)
+            HJu = loss_hessian_mv(Ju, pred=z, target=dummy_targets)
+            # Apply J^T (Jacobian transpose)
+            JT_HJu = vjp_fn(HJu)[0]
+            # Flatten result
+            return flatten_single(JT_HJu)
+
+        # vmap over columns in this block
+        return jax.vmap(single_column, in_axes=1, out_axes=1)(U_block)
+
+    # Process all columns in chunks
+    blocks = []
+    for i in range(0, k, col_chunk_size):
+        block_end = min(i + col_chunk_size, k)
+        blocks.append(process_column_block(U_flat[:, i:block_end]))
+
+    GGN_U = jnp.concatenate(blocks, axis=1)
 
     # For regression, align curvature scaling with Gaussian NLL if noise scale is known.
     # MSE Hessian is 2*I, whereas Gaussian NLL Hessian is (1/sigma^2)*I per datum.
