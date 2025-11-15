@@ -188,7 +188,9 @@ def kronecker(
     return kronecker_mv
 
 
-def kronecker_product_factors(factors_mv: list[Callable], factors_layout: list[Layout]) -> Callable:
+def kronecker_product_factors(
+    factors_mv: list[Callable], factors_layout: list[Layout]
+) -> Callable:
     """Create an efficient Kronecker product from multiple factors.
 
     Computes (A_1 ⊗ A_2 ⊗ ... ⊗ A_n) @ v efficiently without forming the full product.
@@ -209,7 +211,9 @@ def kronecker_product_factors(factors_mv: list[Callable], factors_layout: list[L
         return factors_mv[0]
 
     if len(factors_mv) == 2:
-        return kronecker(factors_mv[0], factors_mv[1], factors_layout[0], factors_layout[1])
+        return kronecker(
+            factors_mv[0], factors_mv[1], factors_layout[0], factors_layout[1]
+        )
 
     # For multiple factors, compose pairwise from right to left
     # (A ⊗ B ⊗ C) = ((A ⊗ B) ⊗ C)
@@ -217,8 +221,13 @@ def kronecker_product_factors(factors_mv: list[Callable], factors_layout: list[L
     result_layout = factors_layout[-1]
 
     for i in range(len(factors_mv) - 2, -1, -1):
-        result_mv = kronecker(factors_mv[i], result_mv, factors_layout[i], result_layout)
+        result_mv = kronecker(
+            factors_mv[i], result_mv, factors_layout[i], result_layout
+        )
         # Update layout to reflect the Kronecker product size
-        result_layout = get_size(factors_layout[i]) * get_size(result_layout)
+        if isinstance(factors_layout[i], int) and isinstance(result_layout, int):
+            result_layout = factors_layout[i] * result_layout
+        else:
+            result_layout = get_size(factors_layout[i]) * get_size(result_layout)
 
     return result_mv
