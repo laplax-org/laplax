@@ -349,46 +349,6 @@ def _lanczos_none_structure(
     return lanczos_invert_sqrt(kernel, initial_vector, **kwargs)
 
 
-# Removed helper _kronecker_product; Kronecker products are assembled inline.
-
-
-def _compute_kronecker_diagonal(factors: list[jnp.ndarray]) -> jnp.ndarray:
-    """Compute diagonal of Kronecker product efficiently.
-
-    Parameters
-    ----------
-    factors : list[jnp.ndarray]
-        List of matrices in Kronecker product
-
-    Returns
-    -------
-    jnp.ndarray
-        Diagonal of Kronecker product
-    """
-    # For Kronecker product A ⊗ B, diag(A ⊗ B) = diag(A) ⊗ diag(B)
-    diagonals = [jnp.diag(factor) for factor in factors]
-    result = diagonals[0]
-    for diag in diagonals[1:]:
-        result = jnp.kron(result, diag)
-    return result
-
-
-def _compute_none_diagonal(matrix: jnp.ndarray) -> jnp.ndarray:
-    """Compute diagonal of unstructured matrix.
-
-    Parameters
-    ----------
-    matrix : jnp.ndarray
-        Input matrix
-
-    Returns
-    -------
-    jnp.ndarray
-        Diagonal of matrix
-    """
-    return jnp.diag(matrix)
-
-
 # ==============================================================================
 # Main inference functions
 # ==============================================================================
@@ -459,8 +419,6 @@ def create_fsp_posterior_kronecker(
         function_kernels, initial_vectors_function, max_iters=None
     )
 
-    # Use kronecker_product_factors to avoid creating intermediate dense matrices
-    # Convert Lanczos results (dense matrices) to MVP functions
     def make_mv(matrix):
         return lambda v: matrix @ v
 
@@ -470,8 +428,7 @@ def create_fsp_posterior_kronecker(
     # Use column dimension (shape[1]) since MVP input size = number of columns
     all_layouts = [factor.shape[1] for factor in all_factors]
 
-    # Create efficient Kronecker MVP (lazy, no intermediate densification)
-    k_inv_sqrt_mv = util_mv.kronecker_product_factors(all_mvs, all_layouts)
+    k_inv_sqrt_mv = jax.jit(util_mv.kronecker_product_factors(all_mvs, all_layouts))
 
     # Materialize to dense only when needed (using efficient to_dense)
     total_size = int(jnp.prod(jnp.array(all_layouts)))
