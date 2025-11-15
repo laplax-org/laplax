@@ -486,8 +486,9 @@ def create_fsp_posterior_kronecker(
     # Truncated left SVD
     _u, s = _truncated_left_svd(M_flat)
 
-    # Unflatten U to pytree (without trailing rank dim)
-    u = unflatten_params(_u)
+    # Unflatten U to pytree (with trailing rank dim k)
+    # Use unflatten_M (not unflatten_params) since _u has shape (dim_params, k)
+    u = unflatten_M(_u)
     uTggnu = compute_ggn_quadratic_form(
         model_fn=model_fn,
         params=params,
