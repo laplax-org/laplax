@@ -432,63 +432,37 @@ def create_fsp_posterior_kronecker(
     k_inv_sqrt_mv = util_mv.kronecker_product_factors(all_mvs, all_layouts)
     rank = int(jnp.prod(jnp.array(all_layouts)))
 
-    # Compute M = J^T K^{-1/2} column-by-column without densifying K^{-1/2}
-    # This avoids creating the large dense matrix k_inv_sqrt
+    # Build k_inv_sqrt_dense column-by-column using lax.map
+    # This avoids vmap's constant capture issue while keeping memory efficient
+    def get_column(idx):
+        """Extract column idx from Kronecker MVP without densifying full matrix."""
+        return util_mv.column(k_inv_sqrt_mv, layout=rank, idx=idx, mv_jittable=False)
 
-    # Setup for parameter flattening
-    flatten_params, unflatten_params = create_pytree_flattener(params)
-    dim_params = flatten_params(params).size
-
-    # Create dummy M pytree for partial flattener
-    dummy_M = jax.tree.map(
-        lambda p: jnp.zeros(p.shape + (rank,), dtype=p.dtype), params
+    # Use lax.map (sequential) instead of vmap to avoid constant capture
+    k_inv_sqrt_cols = jax.lax.map(get_column, jnp.arange(rank))  # (rank, N_out)
+    k_inv_sqrt_dense = k_inv_sqrt_cols.T.reshape(
+        n_function, *output_shape[1:], rank
     )
-    flatten_M, unflatten_M = create_partial_pytree_flattener(dummy_M)
 
-    # Chunk x_context for memory efficiency
-    x_chunks = jnp.split(x_context, n_chunks_eff, axis=0)
+    # Use original _accumulate_M_over_chunks (processes all columns at once)
+    M = _accumulate_M_over_chunks(
+        model_fn,
+        params,
+        x_context,
+        k_inv_sqrt_dense,
+        n_chunks_eff,
+        mode="map",
+    )
 
-    @jax.jit
-    def compute_M_column(idx: int) -> jnp.ndarray:
-        """Compute column idx of M_flat = J^T K^{-1/2} using matrix-free Kronecker MVP."""
-        # 1) Get column idx of K^{-1/2} via Kronecker MVP (no densification)
-        v_flat = util_mv.column(k_inv_sqrt_mv, layout=rank, idx=idx, mv_jittable=False)
-
-        # 2) Reshape to output shape
-        v = v_flat.reshape(output_shape)  # (B, S1, ..., C)
-
-        # 3) Accumulate J^T @ v over chunks
-        v_chunks = jnp.split(v, n_chunks_eff, axis=0)
-
-        def chunk_body(M_col_accum, data):
-            xs_chunk, v_chunk = data
-            # Treat v_chunk as a single "column" for _M_batch
-            L = v_chunk[..., None]  # add trailing rank dim of size 1
-            M_tree_chunk = _M_batch(model_fn, params, xs_chunk, L)
-            # Remove trailing dim and flatten to params
-            M_tree_single = jax.tree.map(lambda x: x[..., 0], M_tree_chunk)
-            M_col_chunk = flatten_params(M_tree_single)
-            return M_col_accum + M_col_chunk, None
-
-        M_col_init = jnp.zeros(dim_params, dtype=v.dtype)
-        M_col, _ = jax.lax.scan(
-            chunk_body,
-            M_col_init,
-            (jnp.array(x_chunks), jnp.array(v_chunks)),
-        )
-        return M_col  # shape: (dim_params,)
-
-    # 4) Build full M_flat by computing all columns
-    col_indices = jnp.arange(rank)
-    M_flat = jax.vmap(compute_M_column, in_axes=0, out_axes=1)(col_indices)
-    # shape: (dim_params, rank)
+    # Flatten M
+    flatten, unflatten = create_partial_pytree_flattener(M)
+    M_flat = flatten(M)
 
     # Truncated left SVD
     _u, s = _truncated_left_svd(M_flat)
 
     # Unflatten U to pytree (with trailing rank dim k)
-    # Use unflatten_M (not unflatten_params) since _u has shape (dim_params, k)
-    u = unflatten_M(_u)
+    u = unflatten(_u)
     uTggnu = compute_ggn_quadratic_form(
         model_fn=model_fn,
         params=params,
@@ -521,7 +495,8 @@ def create_fsp_posterior_kronecker(
     logger.info(f"FSP posterior using {truncation_idx} / {parameter_count} components.")
     low_rank_terms = LowRankTerms(U, S, scalar=0.0)
 
-    # Note: flatten_params/unflatten_params already created above
+    # Create flatten/unflatten for posterior
+    flatten_params, unflatten_params = create_pytree_flattener(params)
     posterior = Posterior(
         state=posterior_state,
         cov_mv=lambda state: lambda x: unflatten_params(
