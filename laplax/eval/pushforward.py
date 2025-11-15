@@ -544,6 +544,7 @@ def lin_setup(
     mv = set_output_mv(posterior_state, input, jvp, vjp)
     aux["cov_mv"] = mv["cov_mv"]
     aux["jac_mv"] = mv["jac_mv"]
+    aux["input"] = input  # Store input for fast Gram conversion
     results["low_rank_terms"] = mv["low_rank_terms"]
 
     return results, aux
@@ -674,18 +675,131 @@ def lin_pred_lsqrt_low_rank_cov(
     aux: dict[str, Any],
     **kwargs,
 ) -> tuple[dict[str, Array], dict[str, Any]]:
-    """Attach low-rank predictive info and cheap diagonal.
+    """Attach low-rank predictive info using fast Gram-matrix method.
 
-    - Keeps `low_rank_terms` (computed in lin_setup when low_rank=True).
-    - Computes `pred_var` from the low-rank factors without densifying.
-      For Σ = U diag(S²) Uᵀ + σ² I with U ∈ R^{D×k},
-      diag(Σ) = σ² 1 + Σ_j (S_j U[:, j])².
+    For FSP-style evaluation, converts parameter-space low-rank terms U (P×k), S (k)
+    to output-space low-rank terms U_out (D×k), S_out (k) using a Gram-matrix approach
+    that avoids the expensive D×k QR/eigh.
+
+    Method:
+    1. Build C = diag(S) Uᵀ (JᵀJ) U diag(S) using O(k) JVP/VJP products
+    2. Eigendecompose C to get S_out and V
+    3. Recover U_out = J[U diag(S) V diag(1/S_out)] with k JVPs
+    4. Compute pred_var from low-rank factors without densifying
+
+    Args:
+        results: Dictionary containing computed results
+        aux: Auxiliary data containing jvp, vjp functions
+        **kwargs: Additional arguments
+
+    Returns:
+        tuple: Updated `results` and `aux`
     """  # noqa: DOC201
     if "pred_mean" not in results:
         results, aux = lin_pred_mean(results, aux, **kwargs)
 
-    if "low_rank_terms" in results and "observation_noise" in results:
-        lr = results["low_rank_terms"]
+    if "low_rank_terms" not in results:
+        return results, aux
+
+    lr = results["low_rank_terms"]
+
+    # Fast path for FSP: convert parameter-space low-rank to output-space low-rank
+    use_fast_gram = kwargs.get("use_fast_gram_conversion", True)
+
+    if use_fast_gram and "jvp" in aux and lr.U is not None and lr.S is not None:
+        # Fast Gram-matrix conversion
+        jvp_fn = aux["jvp"]
+        vjp_fn = aux.get("vjp")
+        pred_mean = results["pred_mean"]
+        k = lr.S.shape[0]
+
+        # Get input from kwargs or dist_state
+        input_data = kwargs.get("input")
+        if input_data is None and "input" in aux:
+            input_data = aux["input"]
+
+        if input_data is not None:
+            # Build Gram matrix C = diag(S) Uᵀ (JᵀJ) U diag(S)
+            # using k JVPs + k VJPs
+            @jax.jit
+            def compute_gram_column(i):
+                """Compute i-th column of Uᵀ (JᵀJ) U via JVP+VJP"""
+                u_i = jax.tree.map(lambda u: u[:, i], lr.U)
+                # Forward: y = J u_i
+                y = jvp_fn(input_data, u_i)
+
+                if vjp_fn is not None:
+                    # Backward: w = Jᵀ y
+                    w = vjp_fn(input_data, y)
+                    # Inner products: Uᵀ w
+                    def inner_product(j):
+                        u_j = jax.tree.map(lambda u: u[:, j], lr.U)
+                        return util.tree.inner(u_j, w)
+                    return jax.lax.map(inner_product, jnp.arange(k))
+                else:
+                    # Fallback without VJP: compute JU then form JUᵀJU
+                    # (slower, but still better than full QR)
+                    return None
+
+            # Try fast path with VJP
+            if vjp_fn is not None:
+                # Compute Gram matrix columns
+                C_base = jax.lax.map(compute_gram_column, jnp.arange(k))
+                C_base = C_base.T  # Shape: (k, k)
+
+                # Scale: C = diag(S) C_base diag(S)
+                C = lr.S[:, None] * C_base * lr.S[None, :]
+
+                # Eigendecompose C
+                eigvals, V = jnp.linalg.eigh(C)
+                # Sort descending
+                idx = jnp.argsort(eigvals)[::-1]
+                eigvals = eigvals[idx]
+                V = V[:, idx]
+
+                # Numerical stability: clip small eigenvalues
+                eigvals = jnp.maximum(eigvals, 1e-12)
+                S_out = jnp.sqrt(eigvals)
+
+                # Recover output-space U_out by pushing coefficients through J
+                # coeffs = U diag(S) V diag(1/S_out)
+                @jax.jit
+                def compute_u_out_column(i):
+                    """Compute i-th column of U_out = J [U diag(S) V diag(1/S_out)]"""
+                    # Get i-th coefficient vector: U (S V[:, i] / S_out[i])
+                    coeff = V[:, i] * lr.S / S_out[i]
+                    # Linear combination: sum_j U[:, j] * coeff[j]
+                    u_param = jax.tree.map(
+                        lambda u: jnp.sum(u * coeff[None, :], axis=1),
+                        lr.U
+                    )
+                    # Push through Jacobian
+                    return jvp_fn(input_data, u_param).flatten()
+
+                # Compute all columns of U_out
+                U_out_columns = jax.lax.map(compute_u_out_column, jnp.arange(k))
+                U_out = U_out_columns.T  # Shape: (D, k)
+
+                # Update low_rank_terms with output-space factors
+                from laplax.curv.utils import LowRankTerms
+                results["low_rank_terms"] = LowRankTerms(
+                    U=U_out, S=S_out, scalar=lr.scalar
+                )
+
+                # Compute pred_var from low-rank factors
+                if "observation_noise" in results:
+                    sigma = jnp.exp(results["observation_noise"])
+                    U_scaled = U_out * S_out
+                    pred_var = jnp.sum(U_scaled * U_scaled, axis=1) + sigma**2
+                else:
+                    U_scaled = U_out * S_out
+                    pred_var = jnp.sum(U_scaled * U_scaled, axis=1)
+
+                results["pred_var"] = pred_var.reshape(pred_mean.shape)
+                return results, aux
+
+    # Fallback to original method (for non-FSP or when fast conversion not applicable)
+    if "observation_noise" in results:
         sigma = jnp.exp(results["observation_noise"])
         # sum over columns: (S * U)^2 for low-rank diag
         U_scaled = lr.U * lr.S

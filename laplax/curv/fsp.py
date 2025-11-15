@@ -449,7 +449,7 @@ def create_fsp_posterior_kronecker(
         x_context,
         k_inv_sqrt_dense,
         n_chunks_eff,
-        mode="scan",
+        mode="map",  # Use map for memory efficiency (lax.map over chunks)
     )
 
     flatten, unflatten = create_partial_pytree_flattener(M)
@@ -606,7 +606,7 @@ def create_fsp_posterior_none(
         x_context,
         k_inv_sqrt_dense,
         n_chunks_eff,
-        mode="scan",
+        mode="map",  # Use map for memory efficiency (lax.map over chunks)
     )
 
     flatten, unflatten = create_partial_pytree_flattener(M)
