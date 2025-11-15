@@ -31,7 +31,7 @@ from laplax.util.flatten import (
     create_partial_pytree_flattener,
     create_pytree_flattener,
 )
-from laplax.util.mv import LazyKronecker
+# LazyKronecker has been removed; use explicit Kronecker assembly where needed
 
 KernelStructure = CovarianceStructure
 
@@ -349,23 +349,7 @@ def _lanczos_none_structure(
     return lanczos_invert_sqrt(kernel, initial_vector, **kwargs)
 
 
-def _kronecker_product(factors: list) -> jnp.ndarray:
-    """Compute Kronecker product of a list of matrices.
-
-    Parameters
-    ----------
-    factors : list
-        List of matrices to compute Kronecker product
-
-    Returns
-    -------
-    jnp.ndarray
-        Kronecker product of all factors
-    """
-    result = factors[0]
-    for factor in factors[1:]:
-        result = jnp.kron(result, factor)
-    return result
+# Removed helper _kronecker_product; Kronecker products are assembled inline.
 
 
 def _compute_kronecker_diagonal(factors: list[jnp.ndarray]) -> jnp.ndarray:
@@ -475,16 +459,18 @@ def create_fsp_posterior_kronecker(
         function_kernels, initial_vectors_function, max_iters=None
     )
 
-    # Use LazyKronecker to avoid creating intermediate dense matrices
-    # Combine spatial and function factors
-    k_spatial_lazy = LazyKronecker(*spatial_lanczos_results)
-    k_function_lazy = LazyKronecker(*function_lanczos_results)
+    # Assemble inverse sqrt factor explicitly via Kronecker products
+    # Spatial component: kron of all spatial Lanczos factors
+    k_spatial = spatial_lanczos_results[0]
+    for factor in spatial_lanczos_results[1:]:
+        k_spatial = jnp.kron(k_spatial, factor)
 
-    # Combine into full Kronecker product (still lazy)
-    k_inv_sqrt_lazy = k_spatial_lazy @ k_function_lazy
-
-    # Only densify when absolutely needed for column iteration
-    k_inv_sqrt = k_inv_sqrt_lazy.todense()
+    # Function component: kron across provided function kernels (often length 1)
+    k_function = function_lanczos_results[0]
+    for factor in function_lanczos_results[1:]:
+        k_function = jnp.kron(k_function, factor)
+    # Full factor over (functions x spatial) with combined rank
+    k_inv_sqrt = jnp.kron(k_function, k_spatial)
 
     n_function = x_context.shape[0]
     rank = k_inv_sqrt.shape[-1]
