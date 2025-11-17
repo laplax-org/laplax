@@ -14,9 +14,7 @@ from laplax.types import (
     ModelFn,
     Params,
 )
-
 from laplax.util.tree import mul
-
 
 
 def create_fisher_mv_without_data(
@@ -87,7 +85,6 @@ def create_fisher_mv_without_data(
         GGtJv = grad @ GtJv
         JtGGtJv = vjp(GGtJv)[0]
         return mul(factor, JtGGtJv)
-
 
     def mc_fisher_mv(vec, data):
         raise NotImplementedError
