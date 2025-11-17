@@ -1,15 +1,15 @@
-from typing import Optional, Sequence, Union
+from collections.abc import Callable
+from typing import Sequence
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from loguru import logger
 from scipy.stats import qmc
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 from torch.utils.data import DataLoader
 
-from laplax.types import Array
+from laplax.types import Array, Int
 
 
 def _load_all_data_from_dataloader(
@@ -47,7 +47,7 @@ def _flatten_spatial_dims(data: Array) -> tuple[Array, tuple]:
 
 def _pca_transform_jax(
     y_data: Array,
-    n_components: Optional[int] = None,
+    n_components: int | None = None,
     variance_threshold: float = 0.95,
 ) -> tuple[Array, PCA]:
     """Standardize features, then run PCA (SVD-backed) and return scores.
@@ -68,9 +68,6 @@ def _pca_transform_jax(
 
     pca.fit(y_np_std)
     transformed = pca.transform(y_np_std)
-    logger.info(
-        f"PCA reduced output dimension from {y_np_std.shape[1]} to {transformed.shape[1]}"
-    )
 
     return jax.device_put(transformed), pca
 
@@ -79,7 +76,7 @@ def _generate_low_discrepancy_sequence(
     n_dims: int,
     n_points: int,
     sequence_type: str = "sobol",
-    seed: Optional[int] = None,
+    seed: Int | None = None,
 ) -> np.ndarray:
     """Generate low-discrepancy quasi-random sequences."""
     if sequence_type.lower() == "sobol":
@@ -93,10 +90,11 @@ def _generate_low_discrepancy_sequence(
         sampler = qmc.LatinHypercube(d=n_dims, seed=seed)
         points = sampler.random(n_points)
     else:
-        raise ValueError(
+        msg = (
             f"Unknown sequence type: {sequence_type}. "
             "Choose from 'sobol', 'halton', 'latin_hypercube'"
         )
+        raise ValueError(msg)
 
     return points
 
@@ -119,17 +117,17 @@ def _find_nearest_neighbors(
     nn = NearestNeighbors(n_neighbors=1, algorithm="auto")
     nn.fit(data_points)
 
-    distances, indices = nn.kneighbors(query_points)
+    _, indices = nn.kneighbors(query_points)
     return indices.flatten()
 
 
 def _pca_context_points(
     dataloader: DataLoader,
-    n_context_points: int,
+    n_context_points: Int,
     sequence_type: str = "sobol",
-    n_pca_components: Optional[int] = None,
+    n_pca_components: Int | None = None,
     pca_variance_threshold: float = 0.95,
-    seed: Optional[int] = None,
+    seed: Int | None = None,
     return_pca: bool = False,
 ) -> tuple[Array, Array] | tuple[Array, Array, PCA]:
     """Select context points using PCA-based low-discrepancy sampling."""
@@ -151,11 +149,8 @@ def _pca_context_points(
         seed=seed,
     )
 
-    # Rescale Sobol sequence using 2 * variance of PCA components and match in PCA space
     if sequence_type.lower() == "sobol":
-        # Center to [-1, 1]
         centered = 2.0 * (ld_points - 0.5)
-        # Scale per component by 2 * variance (explained_variance_)
         variances = pca.explained_variance_  # shape (n_components,)
         scales = 2.0 * variances
         ld_scaled = centered * scales
@@ -172,20 +167,9 @@ def _pca_context_points(
 
         # Check if we have enough available points
         if len(available) < remaining:
-            logger.warning(
-                f"Cannot reach {n_context_points} context points. "
-                f"Only {len(unique_indices)} unique matches found and "
-                f"{len(available)} additional points available. "
-                f"Using all {len(unique_indices) + len(available)} points."
-            )
             # Use all available points
             indices = np.concatenate([unique_indices, available])
         else:
-            logger.info(
-                f"Warning: Only {len(unique_indices)} unique points found. "
-                f"Adding {remaining} random points to reach {n_context_points}."
-            )
-            # Use seeded random generator for reproducibility
             rng = np.random.default_rng(seed)
             additional = rng.choice(available, size=remaining, replace=False)
             indices = np.concatenate([unique_indices, additional])
@@ -203,10 +187,10 @@ def _pca_context_points(
 
 def _sobol_context_points(
     dataloader: DataLoader,
-    n_context_points: int,
-    n_pca_components: Optional[int] = None,
+    n_context_points: Int,
+    n_pca_components: Int | None = None,
     pca_variance_threshold: float = 0.95,
-    seed: Optional[int] = None,
+    seed: Int | None = None,
 ) -> tuple[Array, Array]:
     """Sobol-based PCA context point selection."""
     return _pca_context_points(
@@ -221,10 +205,10 @@ def _sobol_context_points(
 
 def _latin_hypercube_context_points(
     dataloader: DataLoader,
-    n_context_points: int,
-    n_pca_components: Optional[int] = None,
+    n_context_points: Int,
+    n_pca_components: Int | None = None,
     pca_variance_threshold: float = 0.95,
-    seed: Optional[int] = None,
+    seed: Int | None = None,
 ) -> tuple[Array, Array]:
     """Latin Hypercube-based PCA context point selection."""
     return _pca_context_points(
@@ -239,10 +223,10 @@ def _latin_hypercube_context_points(
 
 def _halton_context_points(
     dataloader: DataLoader,
-    n_context_points: int,
-    n_pca_components: Optional[int] = None,
+    n_context_points: Int,
+    n_pca_components: Int | None = None,
     pca_variance_threshold: float = 0.95,
-    seed: Optional[int] = None,
+    seed: Int | None = None,
 ) -> tuple[Array, Array]:
     """Halton-based PCA context point selection."""
     return _pca_context_points(
@@ -257,10 +241,18 @@ def _halton_context_points(
 
 def _random_context_points(
     dataloader: DataLoader,
-    n_context_points: int,
-    seed: Optional[int] = None,
+    n_context_points: Int,
+    n_pca_components: Int | None = None,
+    pca_variance_threshold: float = 0.95,
+    seed: Int | None = None,
 ) -> tuple[Array, Array]:
-    """Randomly sample context points from the dataset."""
+    """Randomly sample context points from the dataset.
+
+    Extra PCA-related arguments are accepted for API compatibility with
+    other context selection functions but are ignored.
+    """
+    del n_pca_components, pca_variance_threshold
+
     all_x, all_y = _load_all_data_from_dataloader(dataloader)
 
     effective_seed = seed if seed is not None else 0
@@ -276,6 +268,23 @@ def _random_context_points(
     context_y = all_y[indices]
 
     return context_x, context_y
+
+
+ContextSelectionFn = Callable[
+    [DataLoader, Int, Int | None, float, Int | None], tuple[Array, Array]
+]
+
+CONTEXT_SELECTION_METHODS: dict[str, ContextSelectionFn] = {
+    "random": _random_context_points,
+    "sobol": _sobol_context_points,
+    "pca_sobol": _sobol_context_points,
+    "halton": _halton_context_points,
+    "pca_halton": _halton_context_points,
+    "latin_hypercube": _latin_hypercube_context_points,
+    "pca_lhs": _latin_hypercube_context_points,
+    # Alias 'pca' to Sobol-based PCA selection
+    "pca": _sobol_context_points,
+}
 
 
 def _make_grid_from_data_shape(
@@ -319,9 +328,8 @@ def _make_grid_from_data_shape(
         grid = jnp.stack([X, Y, Z], axis=-1)
 
     else:
-        raise ValueError(
-            f"Unsupported number of spatial dimensions: {num_spatial_dims}"
-        )
+        msg = f"Unsupported number of spatial dimensions: {num_spatial_dims}"
+        raise ValueError(msg)
 
     return grid, dx
 
@@ -339,28 +347,67 @@ def _make_grid_from_loader(
     )
 
 
+def _apply_grid_stride(
+    grid: jnp.ndarray,
+    context_x: Array,
+    grid_stride: Int | Sequence[int] | None,
+) -> tuple[jnp.ndarray, Array]:
+    """Apply spatial striding to grid and corresponding context inputs."""
+    if grid_stride is None or grid_stride == 1:
+        return grid, context_x
+
+    stride = (
+        grid_stride
+        if isinstance(grid_stride, (tuple, list))
+        else (int(grid_stride),)
+    )
+
+    # 1D grid: (S,)
+    if grid.ndim == 1:
+        s = max(1, int(stride[0]))
+        grid = grid[::s]
+        # context shape (..., S, T, C) with S at axis=1
+        context_x = context_x[:, ::s, ...]
+    # 2D grid: (Sy, Sx, 2)
+    elif grid.ndim == 3:
+        s_x = s_y = max(1, int(stride[0]))
+        if len(stride) >= 2:
+            s_x = max(1, int(stride[0]))
+            s_y = max(1, int(stride[1]))
+        # Grid axes are (Sy, Sx, 2) due to indexing="xy"
+        grid = grid[::s_y, ::s_x, :]
+        # Context axes are (n_ctx, Sx, Sy, T, C)
+        context_x = context_x[:, ::s_x, ::s_y, ...]
+    # 3D grid: (Sx, Sy, Sz, 3)
+    elif grid.ndim == 4:
+        s_x = s_y = s_z = max(1, int(stride[0]))
+        if len(stride) >= 3:
+            s_x = max(1, int(stride[0]))
+            s_y = max(1, int(stride[1]))
+            s_z = max(1, int(stride[2]))
+        grid = grid[::s_x, ::s_y, ::s_z, :]
+        context_x = context_x[:, ::s_x, ::s_y, ::s_z, ...]
+    else:
+        msg = f"Unsupported grid dimension for striding: {grid.ndim}"
+        raise ValueError(msg)
+
+    return grid, context_x
+
+
 def select_context_points(
     dataloader: DataLoader,
     context_selection: str,
-    n_context_points: int = 50,
-    n_pca_components: Optional[int] = None,
+    n_context_points: Int = 50,
+    n_pca_components: Int | None = None,
     pca_variance_threshold: float = 0.95,
-    seed: Optional[int] = None,
-    time_keep: Optional[int] = None,
-    grid_stride: Optional[Union[int, Sequence[int]]] = None,
+    seed: Int | None = None,
+    time_keep: Int | None = None,
+    grid_stride: Int | None = None,
 ) -> tuple[Array, Array, Array | None]:
     """Top-level context point selection API."""
-    logger.debug(
-        f"context_selection={context_selection}, n_context_points={n_context_points}, seed={seed}"
-    )
-
     # Handle combined strategies (e.g., "random+sobol", "sobol+latin_hypercube")
     if "+" in context_selection:
         strategies = [s.strip() for s in context_selection.split("+")]
-        logger.info(
-            f"Using combined strategy: {context_selection} "
-            f"(splitting {n_context_points} points across {len(strategies)} strategies)"
-        )
 
         # Divide points among strategies
         points_per_strategy = n_context_points // len(strategies)
@@ -370,95 +417,51 @@ def select_context_points(
         all_context_y: list[Array] = []
 
         for i, strategy in enumerate(strategies):
-            # Give remainder points to first strategies
             n_points = points_per_strategy + (1 if i < remainder else 0)
-
-            # Recursively call with individual strategy
-            # Use different seed for each strategy to avoid duplicates
             strategy_seed = None if seed is None else seed + i
-            cx, cy, _ = select_context_points(
-                dataloader=dataloader,
-                context_selection=strategy,
-                n_context_points=n_points,
-                n_pca_components=n_pca_components,
-                pca_variance_threshold=pca_variance_threshold,
-                seed=strategy_seed,
-                time_keep=time_keep,
-                grid_stride=None,  # Apply stride only at the end
+            if strategy not in CONTEXT_SELECTION_METHODS:
+                msg = (
+                    f"Unknown context_selection: {strategy}. "
+                    "Choose from 'random', 'sobol', 'halton', "
+                    "'latin_hypercube', 'pca', 'pca_sobol', "
+                    "'pca_halton', 'pca_lhs'"
+                )
+                raise ValueError(msg)
+            cx, cy = CONTEXT_SELECTION_METHODS[strategy](
+                dataloader,
+                n_points,
+                n_pca_components,
+                pca_variance_threshold,
+                strategy_seed,
             )
             all_context_x.append(cx)
             all_context_y.append(cy)
 
-        # Concatenate along batch dimension
         context_x = jnp.concatenate(all_context_x, axis=0)
         context_y = jnp.concatenate(all_context_y, axis=0)
 
-        # Apply grid stride at the end
         grid, _ = _make_grid_from_loader(dataloader)
-        if grid_stride is not None and grid_stride != 1:
-            stride = (
-                grid_stride
-                if isinstance(grid_stride, (tuple, list))
-                else (int(grid_stride),)
-            )
-            # Apply stride to grid and context_x
-            if grid.ndim == 1:
-                s = max(1, int(stride[0]))
-                grid = grid[::s]
-                context_x = context_x[:, ::s, ...]
-            elif grid.ndim == 3:
-                s_x = s_y = max(1, int(stride[0]))
-                if len(stride) == 2:
-                    s_x, s_y = max(1, int(stride[0])), max(1, int(stride[1]))
-                grid = grid[::s_y, ::s_x, :]
-                context_x = context_x[:, ::s_x, ::s_y, ...]
+        grid, context_x = _apply_grid_stride(grid, context_x, grid_stride)
 
         return context_x, context_y, grid
 
     # Single strategy selection
-    if context_selection == "random":
-        context_x, context_y = _random_context_points(
-            dataloader, n_context_points, seed
-        )
-
-    elif context_selection in {"sobol", "pca_sobol"}:
-        context_x, context_y = _sobol_context_points(
-            dataloader,
-            n_context_points,
-            n_pca_components,
-            pca_variance_threshold,
-            seed,
-        )
-    elif context_selection in {"halton", "pca_halton"}:
-        context_x, context_y = _halton_context_points(
-            dataloader,
-            n_context_points,
-            n_pca_components,
-            pca_variance_threshold,
-            seed,
-        )
-    elif context_selection in {"latin_hypercube", "pca_lhs"}:
-        context_x, context_y = _latin_hypercube_context_points(
-            dataloader,
-            n_context_points,
-            n_pca_components,
-            pca_variance_threshold,
-            seed,
-        )
-    elif context_selection == "pca":
-        # Default to Sobol for PCA
-        context_x, context_y = _sobol_context_points(
-            dataloader,
-            n_context_points,
-            n_pca_components,
-            pca_variance_threshold,
-            seed,
-        )
-    else:
-        raise ValueError(
+    if context_selection not in CONTEXT_SELECTION_METHODS:
+        msg = (
             f"Unknown context_selection: {context_selection}. "
-            "Choose from 'random', 'sobol', 'halton', 'latin_hypercube', 'pca'"
+            "Choose from 'random', 'sobol', 'halton', "
+            "'latin_hypercube', 'pca', 'pca_sobol', "
+            "'pca_halton', 'pca_lhs'"
         )
+        raise ValueError(msg)
+
+    context_x, context_y = CONTEXT_SELECTION_METHODS[context_selection](
+        dataloader,
+        n_context_points,
+        n_pca_components,
+        pca_variance_threshold,
+        seed,
+    )
 
     if time_keep is not None:
         t_keep = max(1, int(time_keep))
@@ -466,40 +469,6 @@ def select_context_points(
             context_x = context_x[..., :t_keep, :]
 
     grid, _ = _make_grid_from_loader(dataloader)
-
-    if grid_stride is not None and grid_stride != 1:
-        stride = (
-            grid_stride
-            if isinstance(grid_stride, (tuple, list))
-            else (int(grid_stride),)
-        )
-        # 1D grid: (S,)
-        if grid.ndim == 1:
-            s = max(1, int(stride[0]))
-            grid = grid[::s]
-            # context shape (..., S, T, C) with S at axis=1
-            context_x = context_x[:, ::s, ...]
-        # 2D grid: (Sy, Sx, 2)
-        elif grid.ndim == 3:
-            s_x = s_y = max(1, int(stride[0]))
-            if len(stride) >= 2:
-                s_x = max(1, int(stride[0]))
-                s_y = max(1, int(stride[1]))
-            # Grid axes are (Sy, Sx, 2) due to indexing="xy"
-            grid = grid[::s_y, ::s_x, :]
-            # Context axes are (n_ctx, Sx, Sy, T, C)
-            context_x = context_x[:, ::s_x, ::s_y, ...]
-        # 3D grid: (Sx, Sy, Sz, 3)
-        elif grid.ndim == 4:
-            s_x = s_y = s_z = max(1, int(stride[0]))
-            if len(stride) >= 3:
-                s_x = max(1, int(stride[0]))
-                s_y = max(1, int(stride[1]))
-                s_z = max(1, int(stride[2]))
-            grid = grid[::s_x, ::s_y, ::s_z, :]
-            context_x = context_x[:, ::s_x, ::s_y, ::s_z, ...]
-        else:
-            raise ValueError(f"Unsupported grid dimension for striding: {grid.ndim}")
+    grid, context_x = _apply_grid_stride(grid, context_x, grid_stride)
 
     return context_x, context_y, grid
-
