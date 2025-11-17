@@ -256,17 +256,24 @@ def compute_posterior_truncation_index(
 ):
     """Compute truncation index for posterior components.
 
-    Accumulates the contribution of each low-rank component (columns of `cov_sqrt`)
-    to the posterior variance via squared JVPs over the context points. Keeps components
-    as long as the posterior variance at ALL context points stays below the prior variance
-    (element-wise constraint). This matches the original FSP implementation.
+    This matches the FSP truncation logic used in the Luno experiments:
+
+    - For each low-rank component (column of ``cov_sqrt``), compute the
+      contribution to the **total** posterior variance via squared JVPs over
+      all context points.
+    - Accumulate these contributions until the running sum reaches or exceeds
+      the sum of the prior variance.
+    - The truncation index is the smallest number of components needed to
+      match the total prior variance.
 
     Args:
         model_fn: Model function f(x, params).
         params: Model parameters (pytree).
         x_context: Context inputs over which to evaluate JVPs.
-        cov_sqrt: Matrix whose columns are low-rank factors in parameter space.
-        prior_variance: Prior variance per context element (element-wise constraint).
+        cov_sqrt: Matrix whose columns are low-rank factors in parameter space
+            (shape (P, R), where P is number of parameters and R is rank).
+        prior_variance: Prior variance over the context/output space. Only the
+            total sum is used for the truncation criterion.
 
     Returns:
         truncation_idx: Number of components to keep (JAX scalar integer).
@@ -274,39 +281,43 @@ def compute_posterior_truncation_index(
     # Unravel columns of cov_sqrt back into the params pytree shape
     _, unravel_fn = flatten_util.ravel_pytree(params)
 
+    # Sum of prior variance provides the global truncation target.
+    prior_var_sum = jnp.sum(prior_variance)
+
     def jvp_fn(x, v):
         return jax.jvp(lambda p: model_fn(x, p), (params,), (v,))[1]
 
     def scan_fn(carry, i):
-        post_var, is_valid_so_far = carry
+        running_sum, truncation_idx = carry
         lr_fac = unravel_fn(cov_sqrt[:, i])
 
-        # Compute squared JVP over all context points
+        # Compute squared JVP over all context points and sum contributions
         sqrt_jvp = jax.vmap(lambda xc: jvp_fn(xc, lr_fac) ** 2)(x_context)
-        sqrt_jvp_flat = sqrt_jvp.reshape(-1)  # Flatten to match prior_variance shape
+        pv = jnp.sum(sqrt_jvp)
+        new_running_sum = running_sum + pv
 
-        # Update posterior variance
-        new_post_var = post_var + sqrt_jvp_flat
+        new_truncation_idx = jax.lax.cond(
+            (new_running_sum >= prior_var_sum) & (truncation_idx == -1),
+            lambda _: i + 1,
+            lambda _: truncation_idx,
+            operand=None,
+        )
 
-        # Check if ALL context points are still below prior variance (element-wise)
-        is_valid = jnp.all(new_post_var < prior_variance.reshape(-1))
+        # We only care about the running sum and first index where we hit the
+        # prior variance; no need to accumulate per‑step values.
+        return (new_running_sum, new_truncation_idx), jnp.array(0.0, pv.dtype)
 
-        # Only update if we were valid before (cumulative product of validity)
-        new_is_valid_so_far = is_valid_so_far & is_valid
-
-        return (new_post_var, new_is_valid_so_far), is_valid
-
-    # Initialize with zero posterior variance
-    init_post_var = jnp.zeros_like(prior_variance.reshape(-1))
-    init_carry = (init_post_var, True)
+    init_carry = (jnp.array(0.0, prior_var_sum.dtype), jnp.array(-1, jnp.int32))
     indices = jnp.arange(cov_sqrt.shape[1])
-    (_, _), validity = jax.lax.scan(scan_fn, init_carry, indices)
+    (running_sum, truncation_idx), _ = jax.lax.scan(scan_fn, init_carry, indices)
 
-    # Use cumulative product to find first False
-    cumulative_validity = jnp.cumprod(validity)
-    truncation_idx = jnp.sum(cumulative_validity).astype(jnp.int32)
+    # If we never crossed the prior variance, keep all components.
+    truncation_idx = jax.lax.cond(
+        truncation_idx == -1,
+        lambda _: cov_sqrt.shape[1],
+        lambda _: truncation_idx,
+        operand=None,
+    )
 
     # Ensure at least one component
-    truncation_idx = jnp.maximum(truncation_idx, 1)
-
-    return truncation_idx
+    return jnp.maximum(truncation_idx, 1)
