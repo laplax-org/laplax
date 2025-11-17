@@ -180,26 +180,6 @@ def _accumulate_M_over_chunks(
     raise ValueError(msg)
 
 
-@partial(jax.jit, static_argnames=("rank",))
-def create_kronecker_mvp_from_factors(
-    factors: list[jnp.ndarray], rank: int
-) -> tuple[Callable, int]:
-    """Create efficient Kronecker MVP from factor matrices.
-
-    Returns MVP function and total rank.
-    """
-
-    def make_mv(matrix):
-        return lambda v: matrix @ v
-
-    all_mvs = [make_mv(f) for f in factors]
-    all_layouts = [f.shape[1] for f in factors]
-
-    k_mv = kronecker_product_factors(all_mvs, all_layouts)
-
-    return k_mv, int(jnp.prod(jnp.array(all_layouts)))
-
-
 def _accumulate_M_over_kron_streaming(
     model_fn: ModelFn,
     params: Params,
@@ -322,101 +302,6 @@ def _M_batch(model_fn: ModelFn, params: Params, xs: InputArray, L: PredArray):
     return jax.tree.map(lambda x: jnp.moveaxis(x, 0, -1), result)
 
 
-def _accumulate_M_over_kron_streaming_improved(
-    model_fn: ModelFn,
-    params: Params,
-    x_context: InputArray,
-    mv_kron: Callable,
-    rank: int,
-    out_shape: tuple[int, ...],
-    n_chunks: int,
-    batch_cols: int = 16,  # Process columns in batches
-) -> Params:
-    """Improved streaming M accumulation with column batching."""
-
-    n_functions = int(x_context.shape[0])
-    chunk_size = n_functions // n_chunks
-
-    def process_column_batch(col_indices):
-        """Process a batch of columns."""
-
-        def single_column(j):
-            e_j = jnp.zeros(rank).at[j].set(1.0)
-            col_full = mv_kron(e_j)
-            vs_full = col_full.reshape(out_shape)
-
-            # Accumulate over data chunks
-            acc = None
-            for c in range(n_chunks):
-                s, e = c * chunk_size, (c + 1) * chunk_size
-                vjp_res = _model_vjp(model_fn, params, x_context[s:e], vs_full[s:e])
-                g = jax.tree.map(lambda p: jnp.sum(p, axis=0), vjp_res)
-                acc = g if acc is None else jax.tree.map(jnp.add, acc, g)
-            return acc
-
-        # Process batch of columns
-        return jax.lax.map(single_column, col_indices)
-
-    # Process all columns in batches
-    all_cols = []
-    for i in range(0, rank, batch_cols):
-        col_batch = jnp.arange(i, min(i + batch_cols, rank))
-        batch_results = process_column_batch(col_batch)
-        all_cols.extend([batch_results[j] for j in range(len(col_batch))])
-
-    # Stack results
-    return jax.tree.map(lambda *xs: jnp.stack(xs, axis=-1), *all_cols)
-
-
-@partial(jax.jit, static_argnames=("model_fn", "n_chunks"))
-def compute_M_structured(
-    model_fn: ModelFn,
-    params: Params,
-    x_context: InputArray,
-    k_inv_sqrt_factors: list[jnp.ndarray],
-    n_chunks: int,
-) -> Params:
-    """Compute M matrix using structured (Kronecker) inverse sqrt.
-
-    Stream columns through VJP without densifying Kronecker product.
-    """
-    k_mv, total_rank = create_kronecker_mvp_from_factors(k_inv_sqrt_factors, 500)
-
-    n_functions = x_context.shape[0]
-    y0 = jax.vmap(lambda x: model_fn(x, params))(x_context)
-    out_shape = y0.shape
-
-    return _accumulate_M_over_kron_streaming_improved(
-        model_fn,
-        params,
-        x_context,
-        mv_kron=k_mv,
-        rank=total_rank,
-        out_shape=out_shape,
-        n_chunks=n_chunks,
-    )
-
-
-@partial(jax.jit, static_argnames=("model_fn", "n_chunks", "mode"))
-def compute_M_unstructured(
-    model_fn: ModelFn,
-    params: Params,
-    x_context: InputArray,
-    k_inv_sqrt_dense: jnp.ndarray,
-    n_chunks: int,
-    mode: str = "map",
-) -> Params:
-    """Compute M matrix using unstructured (dense) inverse sqrt."""
-    return _accumulate_M_over_chunks(
-        model_fn,
-        params,
-        x_context,
-        k_inv_sqrt_dense,
-        n_chunks,
-        mode=mode,
-    )
-
-
 def compute_posterior_components(
     M_flat: jnp.ndarray,
     model_fn: ModelFn,
@@ -486,14 +371,14 @@ def create_lanczos_factors_kronecker(
 
     # Spatial factors
     for kernel, init_vec, max_iter in zip(
-        spatial_kernels, initial_vectors_spatial, spatial_max_iters
+        spatial_kernels, initial_vectors_spatial, spatial_max_iters, strict=False
     ):
         kwargs = {"max_iter": max_iter} if max_iter else {}
         factors.append(lanczos_invert_sqrt(kernel, init_vec, **kwargs))
 
     # Function factors
     for kernel, init_vec, max_iter in zip(
-        function_kernels, initial_vectors_function, function_max_iters
+        function_kernels, initial_vectors_function, function_max_iters, strict=False
     ):
         kwargs = {"max_iter": max_iter} if max_iter else {}
         factors.append(lanczos_invert_sqrt(kernel, init_vec, **kwargs))
@@ -723,8 +608,6 @@ def create_fsp_posterior_kronecker(
     )
 
     if kron_mode == "dense":
-        # Match the efficient local implementation by forming a dense
-        # Kronecker factor and using chunked VJP accumulation.
         all_factors = spatial_lanczos_results + function_lanczos_results
         k_inv_sqrt_dense = all_factors[0]
         for factor in all_factors[1:]:
@@ -746,7 +629,7 @@ def create_fsp_posterior_kronecker(
             mode=chunk_mode,
         )
     else:
-        # Streaming Kronecker MVP; more memory‑efficient but can be slower.
+
         def make_mv(matrix):
             return lambda v: matrix @ v
 
