@@ -1,3 +1,5 @@
+# ggn.py
+
 """Generalized Gauss-Newton matrix-vector product and loss hessian."""
 
 import math
@@ -219,7 +221,11 @@ def _jmp(
         """J(x_c) U_M for one context point."""
 
         def jvp_single_rank(u_single: Params) -> PredArray:
-            _, tang = jax.jvp(lambda p: model_fn(x_c, p), (params,), u_single)
+            _, tang = jax.jvp(
+                lambda p: model_fn(x_c, p),
+                (params,),
+                (u_single,),
+            )
             return tang
 
         res_rank_major = jax.lax.map(jvp_single_rank, u_rank_major)
@@ -248,7 +254,7 @@ def _jmp_fast(
             out_axes=-1,
         )(u_rank_major)
 
-    return jax.vmap(jmp_single_x)(x_context)
+    return jax.lax.map(jmp_single_x, x_context)
 
 
 def create_jmp(
