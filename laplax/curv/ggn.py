@@ -125,8 +125,8 @@ def create_ggn_mv(
             losses that contain sums even for a single input (e.g., pixel-wise semantic
             segmentation losses, this number is _not_ the batch size.
         num_total_samples: Number of total samples the model was trained on. See the
-            remark in `num_ggn_samples`'s description. Defaults to None, in which case
-            it is set to equal `num_ggn_samples`.
+            remark in `num_curv_samples`'s description. Defaults to None, in which case
+            it is set to equal `num_curv_samples`.
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         loss_hessian_mv: The loss Hessian matrix-vector product. If not provided, it is
             computed using the `loss_fn`.
