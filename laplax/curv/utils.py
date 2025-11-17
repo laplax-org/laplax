@@ -1,3 +1,5 @@
+# utils.py
+
 """Utility functions for curvature estimation."""
 
 from collections.abc import Callable
@@ -298,26 +300,23 @@ def compute_posterior_truncation_index(
 
         new_truncation_idx = jax.lax.cond(
             (new_running_sum >= prior_var_sum) & (truncation_idx == -1),
-            lambda _: i + 1,
+            lambda _: (i + 1).astype(truncation_idx.dtype),
             lambda _: truncation_idx,
             operand=None,
         )
 
-        # We only care about the running sum and first index where we hit the
-        # prior variance; no need to accumulate per‑step values.
         return (new_running_sum, new_truncation_idx), jnp.array(0.0, pv.dtype)
 
-    init_carry = (jnp.array(0.0, prior_var_sum.dtype), jnp.array(-1, jnp.int32))
+    init_carry = (jnp.array(0.0, prior_var_sum.dtype), jnp.array(-1, jnp.int64))
     indices = jnp.arange(cov_sqrt.shape[1])
     (running_sum, truncation_idx), _ = jax.lax.scan(scan_fn, init_carry, indices)
 
-    # If we never crossed the prior variance, keep all components.
     truncation_idx = jax.lax.cond(
         truncation_idx == -1,
-        lambda _: cov_sqrt.shape[1],
+        lambda _: jnp.array(cov_sqrt.shape[1], dtype=truncation_idx.dtype),
         lambda _: truncation_idx,
         operand=None,
     )
 
     # Ensure at least one component
-    return jnp.maximum(truncation_idx, 1)
+    return jnp.maximum(truncation_idx, jnp.array(1, dtype=truncation_idx.dtype))
