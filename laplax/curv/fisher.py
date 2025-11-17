@@ -15,9 +15,12 @@ from laplax.types import (
     Params,
 )
 
+from laplax.util.tree import mul
+
+
 
 def create_fisher_mv_without_data(
-    type: FisherType | str,
+    fishertype: FisherType | str,
     model_fn: ModelFn,
     params: Params,
     loss_fn: LossFn | str | Callable | None,
@@ -44,21 +47,21 @@ def create_fisher_mv_without_data(
         dataset, making it suitable for distributed or batched computations.
 
     Args:
-        type: The type of Fisher approximation. Either 'EMPIRICAL' or 'MC'.
+        fishertype: The type of Fisher approximation. Either 'EMPIRICAL' or 'MC'.
         model_fn: The model's forward pass function.
         params: Model parameters.
         loss_fn: Loss function to use for the Fisher computation.
         factor: Scaling factor for the Fisher computation.
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         loss_grad_fn: The loss gradient function.
-        mc_samples: Number of MC samples to use for type 'MC'. Defaults to 1.
+        mc_samples: Number of MC samples to use for fishertype 'MC'. Defaults to 1.
 
     Returns:
         A function that takes a vector and a batch of data, and computes the Fisher
         matrix-vector product.
 
     Raises:
-        ValueError: When 'type' is neither 'EMPIRICAL' nor 'MC'.
+        ValueError: When 'fishertype' is neither 'EMPIRICAL' nor 'MC'.
 
     Note:
         The function assumes as a default that the data has a batch dimension.
@@ -82,13 +85,14 @@ def create_fisher_mv_without_data(
         Jv = jvp(vec)
         GtJv = grad.T @ Jv
         GGtJv = grad @ GtJv
-        JtGGtJv = vjp(GGtJv)
-        return factor * JtGGtJv
+        JtGGtJv = vjp(GGtJv)[0]
+        return mul(factor, JtGGtJv)
+
 
     def mc_fisher_mv(vec, data):
         raise NotImplementedError
 
-    if type == FisherType.EMPIRICAL:
+    if fishertype == FisherType.EMPIRICAL:
         if mc_samples is not None:
             # This is not an error (does not prevent computation)
             # but is likely unintended -> Warning
@@ -98,9 +102,9 @@ def create_fisher_mv_without_data(
             )
         return empirical_fisher_mv
 
-    if type == FisherType.MC:
+    if fishertype == FisherType.MC:
         mc_samples = mc_samples or 1
         return mc_fisher_mv
 
-    msg = f"Fisher Type must be either 'EMPIRICAL' or 'MC'. Got {type} instead."
+    msg = f"Fisher Type must be either 'EMPIRICAL' or 'MC'. Got {fishertype} instead."
     raise ValueError(msg)
