@@ -191,7 +191,7 @@ def kronecker(
     layout_a: Layout,
     layout_b: Layout,
     *,
-    mode: str = "vmap",
+    mode: str = "map",
     batch_size: int | None = None,
 ) -> Callable:
     """Create a Kronecker product MVP with selectable mapping mode.

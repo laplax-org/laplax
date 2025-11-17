@@ -2,6 +2,7 @@
 
 import math
 from collections.abc import Callable
+from functools import partial
 
 import jax
 from jax import numpy as jnp
@@ -21,7 +22,6 @@ from laplax.types import (
     PredArray,
     TargetArray,
 )
-from laplax.util.flatten import create_partial_pytree_flattener, create_pytree_flattener
 from laplax.util.tree import mul
 
 
@@ -206,6 +206,59 @@ def create_loss_hessian_mv(
 # -----------------------------------------------------------------------------------
 
 
+@partial(jax.jit, static_argnames=("model_fn",))
+def _jmp(
+    model_fn: ModelFn,
+    params: Params,
+    x_context: InputArray,
+    u: Params,
+) -> PredArray:
+    u_rank_major = jax.tree.map(lambda leaf: jnp.moveaxis(leaf, -1, 0), u)
+
+    def jmp_single_x(x_c: InputArray) -> PredArray:
+        """J(x_c) U_M for one context point."""
+
+        def jvp_single_rank(u_single: Params) -> PredArray:
+            _, tang = jax.jvp(lambda p: model_fn(x_c, p), (params,), u_single)
+            return tang
+
+        res_rank_major = jax.lax.map(jvp_single_rank, u_rank_major)
+        return jnp.moveaxis(res_rank_major, 0, -1)
+
+    return jax.lax.map(jmp_single_x, x_context)
+
+
+@partial(jax.jit, static_argnames=("model_fn",))
+def _jmp_fast(
+    model_fn: ModelFn,
+    params: Params,
+    x_context: InputArray,
+    u: Params,
+) -> PredArray:
+    u_rank_major = jax.tree.map(lambda leaf: jnp.moveaxis(leaf, -1, 0), u)
+
+    def jmp_single_x(x_c: InputArray) -> PredArray:
+        return jax.vmap(
+            lambda u_single: jax.jvp(lambda p: model_fn(x_c, p), (params,), u_single)[
+                1
+            ],
+            in_axes=0,
+            out_axes=-1,
+        )(u_rank_major)
+
+    return jax.vmap(jmp_single_x)(x_context)
+
+
+def create_jmp(
+    model_fn: ModelFn,
+    *,
+    vmap_over_data: bool,
+) -> Callable[[Params, InputArray, Params], PredArray]:
+    """Create a JVP-based Jacobian-matrix product specialized to `model_fn`."""
+    jmp_impl = _jmp_fast if vmap_over_data else _jmp
+    return partial(jmp_impl, model_fn=model_fn)
+
+
 def create_ggn_mv_without_data(
     model_fn: ModelFn,
     params: Params,
@@ -214,6 +267,7 @@ def create_ggn_mv_without_data(
     *,
     vmap_over_data: bool = True,
     loss_hessian_mv: Callable | None = None,
+    fsp: bool = False,
 ) -> Callable[[Params, Data], Params]:
     r"""Create Generalized Gauss-Newton (GGN) matrix-vector productwithout fixed data.
 
@@ -272,7 +326,35 @@ def create_ggn_mv_without_data(
 
         return mul(factor, arr)
 
-    return ggn_mv
+    jmp = create_jmp(model_fn=model_fn, vmap_over_data=vmap_over_data)
+
+    def ggn_fsp_mv(vec, data):
+        x_context = data["context"]
+        ju = jmp(
+            params=params,
+            x_context=x_context,
+            u=vec,
+        )
+        batch_size = ju.shape[0]
+        rank = ju.shape[-1]
+
+        preds = jax.vmap(lambda x: model_fn(x, params))(x_context)
+
+        ju_rank_major = jnp.moveaxis(ju, -1, 0)
+
+        def apply_loss_hessian(jv_single):
+            return loss_hessian_mv(jv_single, pred=preds, target=data["target"])
+
+        hju_rank_major = jax.vmap(apply_loss_hessian)(ju_rank_major)
+        hju = jnp.moveaxis(hju_rank_major, 0, -1)
+
+        ju_flat = ju.reshape(batch_size, -1, rank)
+        hju_flat = hju.reshape(batch_size, -1, rank)
+        gram = jnp.einsum("bji,bjk->ik", ju_flat, hju_flat)
+
+        return mul(factor, gram)
+
+    return ggn_mv if not fsp else ggn_fsp_mv
 
 
 def create_ggn_mv(
@@ -285,6 +367,7 @@ def create_ggn_mv(
     num_total_samples: Int | None = None,
     vmap_over_data: bool = True,
     loss_hessian_mv: Callable | None = None,
+    fsp: bool = False,
 ) -> Callable[[Params], Params]:
     r"""Computes the Generalized Gauss-Newton (GGN) matrix-vector product with data.
 
@@ -307,7 +390,7 @@ def create_ggn_mv(
     Args:
         model_fn: The model's forward pass function.
         params: Model parameters.
-        data: A batch of input and target data.
+        data: A batch of input and target data, for fsp "context".
         loss_fn: Loss function to use for the GGN computation.
         num_curv_samples: Number of samples used to calculate the GGN. Defaults to None,
             in which case it is inferred from `data` as its batch size. Note that for
@@ -355,109 +438,10 @@ def create_ggn_mv(
         factor=curv_scaling_factor,
         vmap_over_data=vmap_over_data,
         loss_hessian_mv=loss_hessian_mv,
+        fsp=fsp,
     )
 
     def wrapped_ggn_mv(vec: Params) -> Params:
         return ggn_mv(vec, data)
 
     return wrapped_ggn_mv
-
-
-def compute_ggn_quadratic_form(
-    model_fn: ModelFn,
-    params: Params,
-    x_context: InputArray,
-    U: Params,  # pytree with multiple "columns"
-    is_classification: bool = False,
-    regression_noise_scale: float | None = None,
-    col_chunk_size: int = 64,
-    vmap_over_data: bool = True,
-) -> Array:
-    """Compute U^T @ GGN @ U where U contains multiple vectors.
-
-    Uses single linearization + chunked column processing to avoid O(k) repeated
-    linearizations and reduce memory footprint.
-
-    Args:
-        model_fn: Model function
-        params: Model parameters
-        x_context: Input data
-        U: Pytree with multiple columns (trailing rank dimension)
-        is_classification: Whether this is a classification task
-        regression_noise_scale: Noise scale for regression (if known)
-        col_chunk_size: Number of columns to process in each chunk
-        vmap_over_data: Whether to vmap over data dimension
-
-    Returns:
-        Array of shape (rank, rank) representing the quadratic form.
-    """
-    # Create dummy targets - shape depends on classification vs regression
-    if is_classification:
-        # For classification, we need integer targets
-        dummy_targets = jnp.zeros(x_context.shape[0], dtype=jnp.int32)
-        loss_fn = LossFn.CROSS_ENTROPY
-    else:
-        # For regression, targets match output shape
-        y0 = jax.vmap(lambda x: model_fn(x, params))(x_context)
-        dummy_targets = jnp.zeros_like(y0)
-        loss_fn = LossFn.MSE
-
-    # Create loss Hessian MVP and linearize model ONCE
-    loss_hessian_mv = create_loss_hessian_mv(loss_fn)
-    if vmap_over_data:
-        loss_hessian_mv = jax.vmap(loss_hessian_mv)
-
-    # Single linearization for all columns
-    def fwd(p):
-        if vmap_over_data:
-            return jax.vmap(lambda x: model_fn(x, p))(x_context)
-        else:
-            return model_fn(x_context, p)
-
-    z, jvp_fn = jax.linearize(fwd, params)
-    vjp_fn = jax.linear_transpose(jvp_fn, params)
-
-    # Flatten U for column-wise processing
-    flatten_partial, _ = create_partial_pytree_flattener(U)
-    U_flat = flatten_partial(U)  # shape: (P, k)
-
-    # Flatten helpers for individual columns
-    flatten_single, unflatten_single = create_pytree_flattener(params)
-
-    # Process columns in chunks to reduce memory
-    k = U_flat.shape[1]
-
-    def process_column_block(U_block):
-        """Process a chunk of columns: GGN @ U_block."""
-
-        def single_column(u_col):
-            # Unflatten column to pytree
-            u_i = unflatten_single(u_col)
-            # Apply J (Jacobian)
-            Ju = jvp_fn(u_i)
-            # Apply H (loss Hessian)
-            HJu = loss_hessian_mv(Ju, pred=z, target=dummy_targets)
-            # Apply J^T (Jacobian transpose)
-            JT_HJu = vjp_fn(HJu)[0]
-            # Flatten result
-            return flatten_single(JT_HJu)
-
-        # vmap over columns in this block
-        return jax.vmap(single_column, in_axes=1, out_axes=1)(U_block)
-
-    # Process all columns in chunks
-    blocks = []
-    for i in range(0, k, col_chunk_size):
-        block_end = min(i + col_chunk_size, k)
-        blocks.append(process_column_block(U_flat[:, i:block_end]))
-
-    GGN_U = jnp.concatenate(blocks, axis=1)
-
-    # For regression, align curvature scaling with Gaussian NLL if noise scale is known.
-    # MSE Hessian is 2*I, whereas Gaussian NLL Hessian is (1/sigma^2)*I per datum.
-    # Summed over data, the ratio is 1 / (2*sigma^2).
-    if not is_classification and regression_noise_scale is not None:
-        factor = 1.0 / (2.0 * (regression_noise_scale**2))
-        GGN_U = factor * GGN_U
-
-    return U_flat.T @ GGN_U

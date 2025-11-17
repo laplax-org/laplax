@@ -563,6 +563,7 @@ def GGN(
     *,
     factor: float = 1.0,
     vmap_over_data: bool = True,
+    fsp: bool = False,
     verbose_logging: bool = True,
     transform: Callable | None = None,
 ) -> Callable[[Params], Params]:
@@ -590,6 +591,7 @@ def GGN(
         loss_fn=loss_fn,
         factor=factor,
         vmap_over_data=vmap_over_data,
+        fsp=fsp,
     )
 
     mv_bound = _maybe_wrap_loader_or_batch(

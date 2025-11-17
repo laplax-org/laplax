@@ -6,18 +6,16 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
-from loguru import logger
 
-import laplax
 from laplax.curv.cov import Posterior, PosteriorState
-from laplax.curv.ggn import compute_ggn_quadratic_form
+from laplax.curv.ggn import create_ggn_mv_without_data
 from laplax.curv.lanczos import lanczos_invert_sqrt
 from laplax.curv.utils import (
     LowRankTerms,
     compute_posterior_truncation_index,
     create_model_jvp,
 )
-from laplax.enums import CovarianceStructure
+from laplax.enums import CovarianceStructure, LossFn
 from laplax.types import (
     Callable,
     InputArray,
@@ -32,6 +30,7 @@ from laplax.util.flatten import (
     create_partial_pytree_flattener,
     create_pytree_flattener,
 )
+from laplax.util.mv import kronecker_product_factors
 
 KernelStructure = CovarianceStructure
 
@@ -86,6 +85,45 @@ def _truncated_left_svd(M_flat: jnp.ndarray):
         return U, s
 
 
+def _compute_fsp_ggn_gram(
+    model_fn: ModelFn,
+    params: Params,
+    x_context: InputArray,
+    U: Params,
+    *,
+    is_classification: bool = False,
+    regression_noise_scale: float | None = None,
+) -> jax.Array:
+    """Compute U^T G U for FSP using a GGN matrix.
+
+    For classification, uses the cross-entropy loss Hessian.
+    For regression (or when ``is_classification`` is False), uses an identity
+    loss Hessian so that G reduces to J^T J, matching the original FSP
+    implementation where no data loss curvature is included.
+
+    The current implementation ignores ``regression_noise_scale`` but keeps it
+    as an argument for API compatibility.
+    """
+    del regression_noise_scale
+
+    loss_fn: LossFn | str = LossFn.CROSS_ENTROPY if is_classification else LossFn.NONE
+
+    ggn_mv = create_ggn_mv_without_data(
+        model_fn=model_fn,
+        params=params,
+        loss_fn=loss_fn,
+        factor=1.0,
+        vmap_over_data=True,
+        fsp=True,
+    )
+
+    # Built-in loss Hessians in laplax.curv.ggn do not depend on the targets,
+    # so we can pass a dummy target with the correct batch dimension.
+    dummy_target = jnp.zeros((x_context.shape[0],), dtype=jnp.int32)
+
+    return ggn_mv(U, {"context": x_context, "target": dummy_target})
+
+
 def _accumulate_M_over_chunks(
     model_fn: ModelFn,
     params: Params,
@@ -130,13 +168,77 @@ def _accumulate_M_over_chunks(
         def scan_fn(carry, pair):
             x_c, k_c = pair
             M_chunk = _M_batch(model_fn, params, x_c, k_c)
-            return laplax.util.tree.add(carry, M_chunk), None
+            return jax.tree.map(jnp.add, carry, M_chunk), None
 
         M, _ = jax.lax.scan(scan_fn, init_M, (x_stacked[1:], k_stacked[1:]))
         return M
 
     msg = f"Unknown chunk accumulation mode: {mode}"
     raise ValueError(msg)
+
+
+@partial(jax.jit, static_argnames=("rank",))
+def create_kronecker_mvp_from_factors(
+    factors: list[jnp.ndarray], rank: int
+) -> tuple[Callable, int]:
+    """Create efficient Kronecker MVP from factor matrices.
+
+    Returns MVP function and total rank.
+    """
+
+    def make_mv(matrix):
+        return lambda v: matrix @ v
+
+    all_mvs = [make_mv(f) for f in factors]
+    all_layouts = [f.shape[1] for f in factors]
+
+    k_mv = kronecker_product_factors(all_mvs, all_layouts)
+
+    return k_mv, int(jnp.prod(jnp.array(all_layouts)))
+
+
+def _accumulate_M_over_kron_streaming(
+    model_fn: ModelFn,
+    params: Params,
+    x_context: InputArray,
+    *,
+    mv_kron: Callable[[jnp.ndarray], jnp.ndarray],
+    rank: int,
+    out_shape: tuple[int, ...],
+    n_chunks: int,
+) -> Params:
+    """Accumulate M streaming columns from a Kronecker MVP without densifying.
+
+    For each column j in 0..rank-1, compute vs = reshape(mv_kron(e_j), out_shape),
+    then sum VJPs over function chunks. Stacks results across the last axis.
+    """
+
+    n_functions = int(x_context.shape[0])
+    n_chunks_eff = int(min(max(1, n_chunks), n_functions))
+    while n_functions % n_chunks_eff != 0 and n_chunks_eff > 1:
+        n_chunks_eff -= 1
+    chunk_size = n_functions // n_chunks_eff
+
+    def grad_for_chunk(xs_chunk, vs_chunk):
+        vjp_res = _model_vjp(model_fn, params, xs_chunk, vs_chunk)
+        return jax.tree.map(lambda p: jnp.sum(p, axis=0), vjp_res)
+
+    cols: list[Params] = []
+    for j in range(int(rank)):
+        e_j = jnp.zeros((int(rank),), dtype=x_context.dtype).at[j].set(1.0)
+        col_full = mv_kron(e_j)
+        vs_full = col_full.reshape(out_shape)
+
+        acc: Params | None = None
+        for c in range(n_chunks_eff):
+            s = c * chunk_size
+            e = (c + 1) * chunk_size
+            g = grad_for_chunk(x_context[s:e], vs_full[s:e])
+            acc = g if acc is None else jax.tree.map(jnp.add, acc, g)
+        assert acc is not None
+        cols.append(acc)
+
+    return jax.tree.map(lambda *xs: jnp.stack(xs, axis=-1), *cols)
 
 
 @partial(jax.jit, static_argnames=("model_fn",))
@@ -217,6 +319,195 @@ def _M_batch(model_fn: ModelFn, params: Params, xs: InputArray, L: PredArray):
     return jax.tree.map(lambda x: jnp.moveaxis(x, 0, -1), result)
 
 
+def _accumulate_M_over_kron_streaming_improved(
+    model_fn: ModelFn,
+    params: Params,
+    x_context: InputArray,
+    mv_kron: Callable,
+    rank: int,
+    out_shape: tuple[int, ...],
+    n_chunks: int,
+    batch_cols: int = 16,  # Process columns in batches
+) -> Params:
+    """Improved streaming M accumulation with column batching."""
+
+    n_functions = int(x_context.shape[0])
+    chunk_size = n_functions // n_chunks
+
+    def process_column_batch(col_indices):
+        """Process a batch of columns."""
+
+        def single_column(j):
+            e_j = jnp.zeros(rank).at[j].set(1.0)
+            col_full = mv_kron(e_j)
+            vs_full = col_full.reshape(out_shape)
+
+            # Accumulate over data chunks
+            acc = None
+            for c in range(n_chunks):
+                s, e = c * chunk_size, (c + 1) * chunk_size
+                vjp_res = _model_vjp(model_fn, params, x_context[s:e], vs_full[s:e])
+                g = jax.tree.map(lambda p: jnp.sum(p, axis=0), vjp_res)
+                acc = g if acc is None else jax.tree.map(jnp.add, acc, g)
+            return acc
+
+        # Process batch of columns
+        return jax.lax.map(single_column, col_indices)
+
+    # Process all columns in batches
+    all_cols = []
+    for i in range(0, rank, batch_cols):
+        col_batch = jnp.arange(i, min(i + batch_cols, rank))
+        batch_results = process_column_batch(col_batch)
+        all_cols.extend([batch_results[j] for j in range(len(col_batch))])
+
+    # Stack results
+    return jax.tree.map(lambda *xs: jnp.stack(xs, axis=-1), *all_cols)
+
+
+@partial(jax.jit, static_argnames=("model_fn", "n_chunks"))
+def compute_M_structured(
+    model_fn: ModelFn,
+    params: Params,
+    x_context: InputArray,
+    k_inv_sqrt_factors: list[jnp.ndarray],
+    n_chunks: int,
+) -> Params:
+    """Compute M matrix using structured (Kronecker) inverse sqrt.
+
+    Stream columns through VJP without densifying Kronecker product.
+    """
+    k_mv, total_rank = create_kronecker_mvp_from_factors(k_inv_sqrt_factors, 500)
+
+    n_functions = x_context.shape[0]
+    y0 = jax.vmap(lambda x: model_fn(x, params))(x_context)
+    out_shape = y0.shape
+
+    return _accumulate_M_over_kron_streaming_improved(
+        model_fn,
+        params,
+        x_context,
+        mv_kron=k_mv,
+        rank=total_rank,
+        out_shape=out_shape,
+        n_chunks=n_chunks,
+    )
+
+
+@partial(jax.jit, static_argnames=("model_fn", "n_chunks", "mode"))
+def compute_M_unstructured(
+    model_fn: ModelFn,
+    params: Params,
+    x_context: InputArray,
+    k_inv_sqrt_dense: jnp.ndarray,
+    n_chunks: int,
+    mode: str = "map",
+) -> Params:
+    """Compute M matrix using unstructured (dense) inverse sqrt."""
+    return _accumulate_M_over_chunks(
+        model_fn,
+        params,
+        x_context,
+        k_inv_sqrt_dense,
+        n_chunks,
+        mode=mode,
+    )
+
+
+def compute_posterior_components(
+    M_flat: jnp.ndarray,
+    model_fn: ModelFn,
+    params: Params,
+    x_context: InputArray,
+    prior_variance: jnp.ndarray,
+    is_classification: bool = False,
+    regression_noise_scale: float | None = None,
+) -> tuple[jnp.ndarray, int]:
+    """Compute posterior covariance sqrt and truncation index.
+
+    Returns (cov_sqrt, truncation_idx)
+    """
+    # Truncated SVD
+    _u, s = _truncated_left_svd(M_flat)
+
+    # Unflatten for GGN computation
+    flatten, unflatten = create_partial_pytree_flattener(params)
+    u = unflatten(_u)
+
+    # Efficient GGN quadratic form U^T G U
+    uTggnu = _compute_fsp_ggn_gram(
+        model_fn=model_fn,
+        params=params,
+        x_context=x_context,
+        U=u,
+        is_classification=is_classification,
+        regression_noise_scale=regression_noise_scale,
+    )
+
+    # Eigendecomposition of A = M^T M + GGN
+    A_eigh = jnp.diag(s**2) + uTggnu
+    eigvals, eigvecs = jnp.linalg.eigh(A_eigh)
+    eigvals = jnp.flip(eigvals, axis=0)
+    eigvecs = jnp.flip(eigvecs, axis=1)
+
+    # Compute posterior covariance sqrt
+    cov_sqrt = _u @ (eigvecs[:, ::-1] / jnp.sqrt(jnp.abs(eigvals[::-1])))
+
+    # Compute truncation index
+    truncation_idx = compute_posterior_truncation_index(
+        model_fn=model_fn,
+        params=params,
+        x_context=x_context,
+        cov_sqrt=cov_sqrt,
+        prior_variance=prior_variance,
+    )
+
+    return cov_sqrt, truncation_idx
+
+
+def create_lanczos_factors_kronecker(
+    spatial_kernels: list[Callable],
+    function_kernels: list[Callable],
+    initial_vectors_spatial: list[jnp.ndarray],
+    initial_vectors_function: list[jnp.ndarray],
+    spatial_max_iters: list[int] | None = None,
+    function_max_iters: list[int] | None = None,
+) -> list[jnp.ndarray]:
+    """Create Lanczos inverse sqrt factors for Kronecker structure."""
+    if spatial_max_iters is None:
+        spatial_max_iters = [None] * len(spatial_kernels)
+    if function_max_iters is None:
+        function_max_iters = [None] * len(function_kernels)
+
+    factors = []
+
+    # Spatial factors
+    for kernel, init_vec, max_iter in zip(
+        spatial_kernels, initial_vectors_spatial, spatial_max_iters
+    ):
+        kwargs = {"max_iter": max_iter} if max_iter else {}
+        factors.append(lanczos_invert_sqrt(kernel, init_vec, **kwargs))
+
+    # Function factors
+    for kernel, init_vec, max_iter in zip(
+        function_kernels, initial_vectors_function, function_max_iters
+    ):
+        kwargs = {"max_iter": max_iter} if max_iter else {}
+        factors.append(lanczos_invert_sqrt(kernel, init_vec, **kwargs))
+
+    return factors
+
+
+def create_lanczos_factor_unstructured(
+    kernel: Callable,
+    initial_vector: jnp.ndarray,
+    max_iter: int | None = None,
+) -> jnp.ndarray:
+    """Create Lanczos inverse sqrt for unstructured kernel."""
+    kwargs = {"max_iter": max_iter} if max_iter else {}
+    return lanczos_invert_sqrt(kernel, initial_vector, **kwargs)
+
+
 @partial(jax.jit, static_argnums=(0,), static_argnames=("num_chunks",))
 def _lanczos_init(model_fn: ModelFn, params: Params, xs: InputArray, num_chunks: Int):
     """Initialize Lanczos vectors using HOSVD.
@@ -260,6 +551,13 @@ def _lanczos_init(model_fn: ModelFn, params: Params, xs: InputArray, num_chunks:
 
     spatial_dims = tuple(s for s in xs.shape[1:-2] if s > 1)
     n_function = xs.shape[0]
+
+    # Collapse any non-spatial output axes (e.g., time/channel) by averaging,
+    # so we retain only (n_function, *spatial_dims) for HOSVD initialization.
+    if b.ndim > 1 + len(spatial_dims):
+        reduce_axes = tuple(range(1 + len(spatial_dims), b.ndim))
+        b = jnp.mean(b, axis=reduce_axes)
+
     b = b.reshape((n_function,) + spatial_dims)
 
     initial_vectors = []
@@ -429,26 +727,20 @@ def create_fsp_posterior_kronecker(
     # Use column dimension (shape[1]) since MVP input size = number of columns
     all_layouts = [factor.shape[1] for factor in all_factors]
 
-    # Create efficient Kronecker MVP (lazy, no intermediate densification)
+    # Create efficient Kronecker MVP (no densification)
     k_inv_sqrt_mv = util_mv.kronecker_product_factors(all_mvs, all_layouts)
-    rank = int(jnp.prod(jnp.array(all_layouts)))
+    total_rank = int(jnp.prod(jnp.array(all_layouts)))
+    out_shape = (n_functions,) + tuple(int(s) for s in output_shape[1:])
 
-    def get_column(idx):
-        """Extract column idx from Kronecker MVP without densifying full matrix."""
-        return util_mv.column(k_inv_sqrt_mv, layout=rank, idx=idx, mv_jittable=False)
-
-    # Use lax.map (sequential) instead of vmap to avoid constant capture
-    k_inv_sqrt_cols = jax.lax.map(get_column, jnp.arange(rank))  # (rank, N_out)
-    k_inv_sqrt_dense = k_inv_sqrt_cols.T.reshape(n_functions, *output_shape[1:], rank)
-
-    # Use original _accumulate_M_over_chunks (processes all columns at once)
-    M = _accumulate_M_over_chunks(
+    # Stream columns through VJP accumulation
+    M = _accumulate_M_over_kron_streaming(
         model_fn,
         params,
         x_context,
-        k_inv_sqrt_dense,
-        n_chunks_eff,
-        mode="map",
+        mv_kron=k_inv_sqrt_mv,
+        rank=total_rank,
+        out_shape=out_shape,
+        n_chunks=n_chunks_eff,
     )
 
     # Flatten M
@@ -460,7 +752,7 @@ def create_fsp_posterior_kronecker(
 
     # Unflatten U to pytree (with trailing rank dim k)
     u = unflatten(_u)
-    uTggnu = compute_ggn_quadratic_form(
+    uTggnu = _compute_fsp_ggn_gram(
         model_fn=model_fn,
         params=params,
         x_context=x_context,
@@ -489,8 +781,6 @@ def create_fsp_posterior_kronecker(
 
     posterior_state: PosteriorState = {"scale_sqrt": cov_sqrt[:, :truncation_idx]}
     U, S, _ = jnp.linalg.svd(posterior_state["scale_sqrt"], full_matrices=False)
-    parameter_count = sum(p.size for p in jax.tree.leaves(params))
-    logger.info(f"FSP posterior using {truncation_idx} / {parameter_count} components.")
     low_rank_terms = LowRankTerms(U, S, scalar=0.0)
 
     # Create flatten/unflatten for posterior
@@ -503,10 +793,6 @@ def create_fsp_posterior_kronecker(
         scale_mv=lambda state: lambda x: unflatten_params(state["scale_sqrt"] @ x),
         rank=posterior_state["scale_sqrt"].shape[-1],
         low_rank_terms=low_rank_terms,
-    )
-
-    logger.info(
-        f"Created FSP posterior with rank {posterior.rank} and shape {M_flat.shape}"
     )
 
     return posterior
@@ -620,8 +906,7 @@ def create_fsp_posterior_none(
     _u, s = _truncated_left_svd(M_flat)
 
     u = unflatten(_u)
-
-    uTggnu = compute_ggn_quadratic_form(
+    uTggnu = _compute_fsp_ggn_gram(
         model_fn=model_fn,
         params=params,
         x_context=x_context,
@@ -650,8 +935,6 @@ def create_fsp_posterior_none(
 
     posterior_state: PosteriorState = {"scale_sqrt": cov_sqrt[:, :truncation_idx]}
     U, S, _ = jnp.linalg.svd(posterior_state["scale_sqrt"], full_matrices=False)
-    parameter_count = sum(p.size for p in jax.tree.leaves(params))
-    logger.info(f"FSP posterior using {truncation_idx} / {parameter_count} components.")
     low_rank_terms = LowRankTerms(U, S, scalar=0.0)
 
     flatten_params, unflatten_params = create_pytree_flattener(params)
@@ -663,10 +946,6 @@ def create_fsp_posterior_none(
         scale_mv=lambda state: lambda x: unflatten_params(state["scale_sqrt"] @ x),
         rank=posterior_state["scale_sqrt"].shape[-1],
         low_rank_terms=low_rank_terms,
-    )
-
-    logger.info(
-        f"Created FSP posterior with rank {posterior.rank} and shape {M_flat.shape}"
     )
 
     return posterior
