@@ -93,6 +93,7 @@ def _compute_fsp_ggn_gram(
     *,
     is_classification: bool = False,
     regression_noise_scale: float | None = None,
+    col_chunk_size: int | None = None,
 ) -> jax.Array:
     """Compute U^T G U for FSP using a GGN matrix.
 
@@ -116,6 +117,8 @@ def _compute_fsp_ggn_gram(
         vmap_over_data=True,
         fsp=True,
     )
+
+    ggn_mv = jax.jit(ggn_mv)
 
     # Built-in loss Hessians in laplax.curv.ggn do not depend on the targets,
     # so we can pass a dummy target with the correct batch dimension.
@@ -664,6 +667,7 @@ def create_fsp_posterior_kronecker(
     spatial_max_iters: list[int] | None = [8, 3],
     is_classification: bool = False,
     chunk_mode: str = "scan",
+    kron_mode: str = "dense",  # 'dense' or 'streaming'
     regression_noise_scale: float | None = None,
     ggn_col_chunk_size: int = 64,
     **kwargs,
@@ -718,30 +722,51 @@ def create_fsp_posterior_kronecker(
         function_kernels, initial_vectors_function, max_iters=None
     )
 
-    def make_mv(matrix):
-        return lambda v: matrix @ v
+    if kron_mode == "dense":
+        # Match the efficient local implementation by forming a dense
+        # Kronecker factor and using chunked VJP accumulation.
+        all_factors = spatial_lanczos_results + function_lanczos_results
+        k_inv_sqrt_dense = all_factors[0]
+        for factor in all_factors[1:]:
+            k_inv_sqrt_dense = jnp.kron(k_inv_sqrt_dense, factor)
 
-    # Combine all Kronecker factors (spatial + function)
-    all_factors = spatial_lanczos_results + function_lanczos_results
-    all_mvs = [make_mv(factor) for factor in all_factors]
-    # Use column dimension (shape[1]) since MVP input size = number of columns
-    all_layouts = [factor.shape[1] for factor in all_factors]
+        rank = k_inv_sqrt_dense.shape[-1]
+        k_inv_sqrt_dense = k_inv_sqrt_dense.reshape(
+            n_functions,
+            *output_shape[1:],
+            rank,
+        )
 
-    # Create efficient Kronecker MVP (no densification)
-    k_inv_sqrt_mv = util_mv.kronecker_product_factors(all_mvs, all_layouts)
-    total_rank = int(jnp.prod(jnp.array(all_layouts)))
-    out_shape = (n_functions,) + tuple(int(s) for s in output_shape[1:])
+        M = _accumulate_M_over_chunks(
+            model_fn,
+            params,
+            x_context,
+            k_inv_sqrt_dense,
+            n_chunks_eff,
+            mode=chunk_mode,
+        )
+    else:
+        # Streaming Kronecker MVP; more memory‑efficient but can be slower.
+        def make_mv(matrix):
+            return lambda v: matrix @ v
 
-    # Stream columns through VJP accumulation
-    M = _accumulate_M_over_kron_streaming(
-        model_fn,
-        params,
-        x_context,
-        mv_kron=k_inv_sqrt_mv,
-        rank=total_rank,
-        out_shape=out_shape,
-        n_chunks=n_chunks_eff,
-    )
+        all_factors = spatial_lanczos_results + function_lanczos_results
+        all_mvs = [make_mv(factor) for factor in all_factors]
+        all_layouts = [factor.shape[1] for factor in all_factors]
+
+        k_inv_sqrt_mv = util_mv.kronecker_product_factors(all_mvs, all_layouts)
+        total_rank = int(jnp.prod(jnp.array(all_layouts)))
+        out_shape = (n_functions,) + tuple(int(s) for s in output_shape[1:])
+
+        M = _accumulate_M_over_kron_streaming(
+            model_fn,
+            params,
+            x_context,
+            mv_kron=k_inv_sqrt_mv,
+            rank=total_rank,
+            out_shape=out_shape,
+            n_chunks=n_chunks_eff,
+        )
 
     # Flatten M
     flatten, unflatten = create_partial_pytree_flattener(M)

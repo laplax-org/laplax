@@ -239,9 +239,11 @@ def _jmp_fast(
 
     def jmp_single_x(x_c: InputArray) -> PredArray:
         return jax.vmap(
-            lambda u_single: jax.jvp(lambda p: model_fn(x_c, p), (params,), u_single)[
-                1
-            ],
+            lambda u_single: jax.jvp(
+                lambda p: model_fn(x_c, p),
+                (params,),
+                (u_single,),
+            )[1],
             in_axes=0,
             out_axes=-1,
         )(u_rank_major)
