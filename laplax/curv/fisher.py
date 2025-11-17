@@ -105,3 +105,75 @@ def create_fisher_mv_without_data(
 
     msg = f"Fisher Type must be either 'EMPIRICAL' or 'MC'. Got {fishertype} instead."
     raise ValueError(msg)
+
+
+def create_fisher_mv(
+    fishertype: FisherType | str,
+    model_fn: ModelFn,
+    params: Params,
+    data: Data,
+    loss_fn: LossFn | str | Callable | None = None,
+    *,
+    num_curv_samples: Int | None = None,
+    num_total_samples: Int | None = None,
+    vmap_over_data: bool = True,
+    loss_grad_fn: Callable | None = None,
+    mc_samples: Int | None = None,
+) -> Callable[[Params], Params]:
+    r"""Creates the Fisher matrix-vector product with data.
+
+    Uses either Empirical or Monte Carlo approximation.
+
+    This function hardcodes the dataset, making it ideal for scenarios where the dataset
+    remains fixed.
+
+    Args:
+        fishertype: The type of Fisher approximation. Either 'EMPIRICAL' or 'MC'.
+        model_fn: The model's forward pass function.
+        params: Model parameters.
+        data: A batch of input and target data.
+        loss_fn: Loss function to use for the Fisher computation.
+        num_curv_samples: Number of samples used to calculate the Fisher.
+            Defaults to None, in which case it is inferred from `data`
+            as its batch size.
+            Note that for losses that contain sums even for a single input
+            (e.g., pixel-wise semantic segmentation losses),
+            this number is _not_ the batch size.
+        num_total_samples: Number of total samples the model was trained on. See the
+            remark in `num_curv_samples`'s description. Defaults to None, in which case
+            it is set to equal `num_curv_samples`.
+        vmap_over_data: Whether to vmap over the data. Defaults to True.
+        loss_grad_fn: The loss gradient function.
+            If not provided, it is computed using the 'loss_fn'.
+        mc_samples: Number of MC samples to use for fishertype 'MC'. Defaults to 1.
+
+    Returns:
+        A function that takes a vector and computes
+        the (empirical/Monte-Carlo) Fisher matrix-vector product for the given data.
+
+    Note:
+        The function assumes as a default that the data has a batch dimension.
+    """
+    if num_curv_samples is None:
+        num_curv_samples = data["input"].shape[0]
+
+    if num_total_samples is None:
+        num_total_samples = num_curv_samples
+
+    curv_scaling_factor = num_total_samples / num_curv_samples
+
+    fisher_mv = create_fisher_mv_without_data(
+        fishertype=fishertype,
+        model_fn=model_fn,
+        params=params,
+        loss_fn=loss_fn,
+        factor=curv_scaling_factor,
+        vmap_over_data=vmap_over_data,
+        loss_grad_fn=loss_grad_fn,
+        mc_samples=mc_samples,
+    )
+
+    def wrapped_fisher_mv(vec: Params) -> Params:
+        return fisher_mv(vec, data)
+
+    return wrapped_fisher_mv
