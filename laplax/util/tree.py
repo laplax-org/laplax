@@ -282,13 +282,12 @@ def randn_tree_like(key: KeyType, tree: PyTree) -> PyTree:
 
 
 def randn_like(key: KeyType, layout: PyTree | int) -> PyTree:
-    """Generate a PyTree/Int of random normal values with the same structure as the
-    input.
+    """Generate random normal values matching the given layout.
 
     Args:
         key: A JAX PRNG key.
-        layout: A PyTree whose structure will be replicated or rank of the 1d random
-        vector.
+        layout: A PyTree whose structure will be replicated, or the rank of a
+            1D random vector.
 
     Returns:
         A PyTree of random normal values.

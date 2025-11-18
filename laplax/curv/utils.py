@@ -212,9 +212,12 @@ def create_model_jvp(
         params: Model parameters.
         v: Vector to multiply with the Jacobian.
         model_fn: The model function.
+        in_axes: Axis (or axes) over which to vectorize the input.
+        out_axes: Axis (or axes) for the vectorized output.
 
     Returns:
-        The Jacobian-vector product.
+        Callable[[InputArray], PredArray]: A function computing the
+            Jacobian-vector product over batched inputs.
     """
     return jax.vmap(
         lambda x: jax.jvp(
@@ -236,9 +239,12 @@ def create_model_vjp(
         params: Model parameters.
         v: Vector to multiply with the Jacobian.
         model_fn: The model function.
+        in_axes: Axis (or axes) over which to vectorize the input.
+        out_axes: Axis (or axes) for the vectorized output.
 
     Returns:
-        The vector-Jacobian product.
+        Callable[[InputArray], Params]: A function computing the
+            vector-Jacobian product over batched inputs.
     """
     return jax.vmap(
         lambda x: jax.vjp(

@@ -1,6 +1,9 @@
 # fsp.py
 
-"""FSP (Function-Space Prior) inference module with support for different kernel structures."""
+"""FSP (Function-Space Prior) inference module.
+
+Supports different kernel structures.
+"""
 
 from functools import partial
 
@@ -94,15 +97,17 @@ def _compute_fsp_ggn_gram(
 ) -> jax.Array:
     """Compute U^T G U for FSP using a GGN matrix.
 
-    For classification, uses the cross-entropy loss Hessian.
-    For regression (or when ``is_classification`` is False), uses an identity
-    loss Hessian so that G reduces to J^T J, matching the original FSP
-    implementation where no data loss curvature is included.
+    For classification, uses the cross-entropy loss Hessian. For regression (or
+    when ``is_classification`` is False), uses an identity loss Hessian so that
+    G reduces to J^T J, matching the original FSP implementation where no data
+    loss curvature is included. The current implementation ignores
+    ``regression_noise_scale`` and ``col_chunk_size`` but keeps them as
+    arguments for API compatibility.
 
-    The current implementation ignores ``regression_noise_scale`` but keeps it
-    as an argument for API compatibility.
+    Returns:
+        jax.Array: The Gram matrix ``U^T G U``.
     """
-    del regression_noise_scale
+    del regression_noise_scale, col_chunk_size
 
     loss_fn: LossFn | str = LossFn.CROSS_ENTROPY if is_classification else LossFn.NONE
 
@@ -132,13 +137,20 @@ def _accumulate_M_over_chunks(
     n_chunks: int,
     *,
     mode: str = "map",
-):
-    """Accumulate _M_batch over context chunks using a chosen reduction mode.
+) -> Params:
+    r"""Accumulate _M_batch over context chunks using a chosen reduction mode.
 
     Modes:
-    - "vmap": vectorized map over stacked chunks, then sum the results
-    - "map": lax.map over chunk pairs, then sum the results
-    - "scan": lax.scan accumulating the sum (default, typically fastest/memory‑lean)
+        - "vmap": vectorized map over stacked chunks, then sum the results
+        - "map": lax.map over chunk pairs, then sum the results
+        - "scan": lax.scan accumulating the sum (default, typically fastest/memory-lean)
+
+    Returns:
+        Params: Pytree representing the accumulated ``M`` over all chunks.
+
+    Raises:
+        ValueError: If ``mode`` is not one of ``\"vmap\"``, ``\"map\"``,
+            or ``\"scan\"``.
     """
     x_chunks = jnp.split(x_context, n_chunks, axis=0)
     k_chunks = jnp.split(k_inv_sqrt_dense, n_chunks, axis=0)
@@ -189,8 +201,13 @@ def _accumulate_M_over_kron_streaming(
 ) -> Params:
     """Accumulate M streaming columns from a Kronecker MVP without densifying.
 
-    For each column j in 0..rank-1, compute vs = reshape(mv_kron(e_j), out_shape),
-    then sum VJPs over function chunks. Stacks results across the last axis.
+    For each column j in 0..rank-1, compute ``vs = reshape(mv_kron(e_j),
+    out_shape)``, then sum VJPs over function chunks. Stacks results across the
+    last axis.
+
+    Returns:
+        Params: Pytree whose leaves contain stacked columns of ``M`` along the
+            last axis.
     """
     n_functions = int(x_context.shape[0])
     n_chunks_eff = int(min(max(1, n_chunks), n_functions))
@@ -214,8 +231,8 @@ def _accumulate_M_over_kron_streaming(
             e = (c + 1) * chunk_size
             g = grad_for_chunk(x_context[s:e], vs_full[s:e])
             acc = g if acc is None else jax.tree.map(jnp.add, acc, g)
-        assert acc is not None
-        cols.append(acc)
+        if acc is not None:
+            cols.append(acc)
 
     return jax.tree.map(lambda *xs: jnp.stack(xs, axis=-1), *cols)
 
@@ -304,12 +321,16 @@ def compute_posterior_components(
     params: Params,
     x_context: InputArray,
     prior_variance: jnp.ndarray,
+    *,
     is_classification: bool = False,
     regression_noise_scale: float | None = None,
 ) -> tuple[jnp.ndarray, int]:
     """Compute posterior covariance sqrt and truncation index.
 
-    Returns (cov_sqrt, truncation_idx)
+    Returns:
+        tuple[jnp.ndarray, int]: A pair ``(cov_sqrt, truncation_idx)`` where
+            ``cov_sqrt`` is the posterior covariance square root and
+            ``truncation_idx`` is the chosen truncation index.
     """
     # Truncated SVD
     u_, s = _truncated_left_svd(M_flat)
@@ -357,7 +378,12 @@ def create_lanczos_factors_kronecker(
     spatial_max_iters: list[int] | None = None,
     function_max_iters: list[int] | None = None,
 ) -> list[jnp.ndarray]:
-    """Create Lanczos inverse sqrt factors for Kronecker structure."""
+    """Create Lanczos inverse sqrt factors for Kronecker structure.
+
+    Returns:
+        list[jnp.ndarray]: List of inverse square-root factors corresponding to
+            the spatial and function kernels.
+    """
     if spatial_max_iters is None:
         spatial_max_iters = [None] * len(spatial_kernels)
     if function_max_iters is None:
@@ -387,7 +413,11 @@ def create_lanczos_factor_unstructured(
     initial_vector: jnp.ndarray,
     max_iter: int | None = None,
 ) -> jnp.ndarray:
-    """Create Lanczos inverse sqrt for unstructured kernel."""
+    """Create Lanczos inverse sqrt for an unstructured kernel.
+
+    Returns:
+        jnp.ndarray: Inverse square-root factor for the given kernel.
+    """
     kwargs = {"max_iter": max_iter} if max_iter else {}
     return lanczos_invert_sqrt(kernel, initial_vector, **kwargs)
 
@@ -579,6 +609,7 @@ def create_fsp_posterior_kronecker(
     Posterior
         FSP posterior approximation
     """
+    del kwargs
     if spatial_max_iters is None:
         spatial_max_iters = [8, 3]
     y0 = jax.vmap(lambda x: model_fn(x, params))(x_context)
@@ -744,6 +775,7 @@ def create_fsp_posterior_none(
     Posterior
         FSP posterior approximation
     """
+    del kwargs
     y0 = jax.vmap(lambda x: model_fn(x, params))(x_context)
     output_shape = y0.shape
 
@@ -940,9 +972,7 @@ def create_fsp_posterior(
             **kwargs,
         )
 
-    if (
-        kernel_structure == CovarianceStructure.NONE or str(kernel_structure) == "none"
-    ):
+    if kernel_structure == CovarianceStructure.NONE or str(kernel_structure) == "none":
         if kernel is None:
             msg = "kernel must be provided for None structure"
             raise ValueError(msg)

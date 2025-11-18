@@ -339,8 +339,12 @@ def lanczos_jacobian_initialization(
     data: InputArray,
     *,
     lanczos_initialization_batch_size: int = 20,
-):
-    """Build a normalized initial vector via a single JVP through the model."""
+) -> Array:
+    """Build a normalized initial vector via a single JVP through the model.
+
+    Returns:
+        Array: Normalized initial vector for Lanczos iterations.
+    """
     del lanczos_initialization_batch_size
     init_vec = jax.jvp(
         lambda w: model_fn(data, params=w),

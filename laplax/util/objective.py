@@ -48,6 +48,7 @@ def create_loss_reg(
     model_fn: ModelFn,
     prior_mean: PredArray,
     prior_cov_kernel: Callable[[PredArray, PredArray], Float],
+    *,
     has_batch_dim: bool = True,
 ) -> LossFn:
     r"""Create the FSP RKHS regularization term.

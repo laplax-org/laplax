@@ -329,12 +329,18 @@ def chi_squared(
 
     Returns:
         The estimated q-value.
+
+    Raises:
+        ValueError: If ``pred_mean``, ``pred_std``, and ``target`` do not have
+            the same shape.
     """
     del kwargs
-    assert pred_mean.shape == pred_std.shape == target.shape, (
-        f"arrays must have the same shape: {pred_mean.shape}, "
-        f"{pred_std.shape}, {target.shape}"
-    )
+    if pred_mean.shape != pred_std.shape or pred_mean.shape != target.shape:
+        msg = (
+            "arrays must have the same shape: "
+            f"{pred_mean.shape}, {pred_std.shape}, {target.shape}"
+        )
+        raise ValueError(msg)
     val = jnp.power(pred_mean - target, 2) / jnp.power(pred_std, 2)
     return jnp.mean(val) if averaged else jnp.sum(val)
 
@@ -405,7 +411,10 @@ def crps_gaussian(
 
     # Ensure input arrays are 1D and of the same shape
     if not (pred_mean.shape == pred_std.shape == target.shape):
-        msg = f"arrays must have the same shape : {pred_mean.shape}, {pred_std.shape}, {target.shape}"
+        msg = (
+            "arrays must have the same shape: "
+            f"{pred_mean.shape}, {pred_std.shape}, {target.shape}"
+        )
         raise ValueError(msg)
 
     # Compute crps
@@ -463,7 +472,10 @@ def nll_gaussian(
 
     # Ensure input arrays are 1D and of the same shape
     if not (pred_mean.shape == pred_std.shape == target.shape):
-        msg = f"arrays must have the same shape: {pred_mean.shape}, {pred_std.shape}, {target.shape}"
+        msg = (
+            "arrays must have the same shape: "
+            f"{pred_mean.shape}, {pred_std.shape}, {target.shape}"
+        )
         raise ValueError(msg)
 
     # Compute residuals
@@ -511,7 +523,17 @@ def compute_diagonal(pred: dict) -> Array:
 
 
 def compute_trace(pred: dict, **kwargs: Kwargs) -> Array:
-    """Trace from predictive variance (sum of diagonal)."""
+    """Trace from predictive variance (sum of diagonal).
+
+    Args:
+        pred: Results dict containing the predictive variance under the
+            `"pred_var"` key.
+        **kwargs: Additional arguments. May include `axis` to specify the
+            summation axis.
+
+    Returns:
+        Array: Trace of the predictive variance along the given axis.
+    """
     axis = kwargs.get("axis", -1)
     return jnp.sum(compute_diagonal(pred), axis=axis)
 
@@ -531,11 +553,21 @@ def low_rank_mahalanobis_distance_inverse_covariance(
     observation_noise: Array,
     **kwargs: Kwargs,
 ) -> Float:
-    """Compute sqrt((μ–t)ᵀ Σ⁻¹ (μ–t)) for
-    Σ = U diag(S²) Uᵀ + σ² I using Woodbury.
+    """Compute sqrt((μ - t)^T Σ^-1 (μ - t)) under a low-rank covariance.
 
-    Here, `S` are the singular values of the scale, so the covariance
+    The covariance is given by Σ = U diag(S²) Uᵀ + σ² I using the Woodbury
+    identity. Here, `S` are the singular values of the scale, so the covariance
     eigenvalues are `S²`.
+
+    Args:
+        pred_mean: Predictive mean with shape `(D,)`.
+        target: Target values with shape `(D,)`.
+        pred_cov_low_rank_terms: Low-rank terms representing the covariance.
+        observation_noise: Log-variance of the isotropic observation noise.
+        **kwargs: Additional arguments (ignored).
+
+    Returns:
+        Float: Mahalanobis distance under the low-rank covariance.
     """
     del kwargs
     U = pred_cov_low_rank_terms.U  # (D, k)
@@ -545,7 +577,7 @@ def low_rank_mahalanobis_distance_inverse_covariance(
     v = (pred_mean - target).reshape(-1)
     w = U.T @ v  # (k,)
 
-    # Σ⁻¹ = (1/σ²)[I – U diag(S²/(S²+σ²)) Uᵀ]
+    # Σ^-1 = (1/σ²)[I - U diag(S²/(S²+σ²)) Uᵀ]
     frac = (S**2) / (S**2 + sigma**2)
     quad = (jnp.dot(v, v) - jnp.sum(frac * (w**2))) / (sigma**2)
     return jnp.sqrt(jnp.maximum(quad, 0.0))
@@ -554,7 +586,16 @@ def low_rank_mahalanobis_distance_inverse_covariance(
 def low_rank_log_determinant(
     pred_cov_low_rank_terms: LowRankTerms, observation_noise: Array, **kwargs: Kwargs
 ) -> Float:
-    """Compute log|Σ| for Σ = U diag(S²) Uᵀ + σ² I."""
+    """Compute log|Σ| for Σ = U diag(S²) Uᵀ + σ² I.
+
+    Args:
+        pred_cov_low_rank_terms: Low-rank terms representing the covariance.
+        observation_noise: Log-variance of the isotropic observation noise.
+        **kwargs: Additional arguments (ignored).
+
+    Returns:
+        Float: Log-determinant of the covariance matrix.
+    """
     del kwargs
     U = pred_cov_low_rank_terms.U
     S = pred_cov_low_rank_terms.S
@@ -574,7 +615,9 @@ def low_rank_nlpd_per_input(
 ) -> dict[str, Float]:
     """Negative log predictive density (vector form) using low-rank Σ.
 
-    Returns a dict with `nlpd_per_input` and `mahalanobis_distance`.
+    Returns:
+        dict[str, Float]: Dictionary with `"nlpd_per_input"` and
+            `"mahalanobis_distance"`.
     """
     del kwargs
 
@@ -600,7 +643,11 @@ def low_rank_marginal_nlpd_per_input(
     observation_noise: Array,
     **kwargs: Kwargs,
 ) -> dict[str, Float]:
-    """Marginal NLPD using only the predictive variance and isotropic noise."""
+    """Marginal NLPD using only the predictive variance and isotropic noise.
+
+    Returns:
+        dict[str, Float]: Dictionary with marginal NLPD and MSE per input.
+    """
     del kwargs
     mse_term = jnp.mean((pred_mean - target) ** 2)
     trace_term = jnp.mean(pred_var)
@@ -618,6 +665,9 @@ def cov_low_rank_approximation(results: dict, aux: dict, **kwargs: Kwargs):
     `pred_cov_low_rank_terms` for convenience. Eigenvalues are clipped and
     square-rooted so that `S` represents scale singular values (matching the
     convention used in low-rank pushforward), i.e., Σ ≈ U diag(S²) Uᵀ.
+
+    Returns:
+        tuple[dict, dict]: Updated `results` and `aux` dictionaries.
     """
     cov_pred = results.get("pred_cov")
     if cov_pred is None:

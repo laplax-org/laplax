@@ -31,7 +31,7 @@ def finalize_fns(
     fns: list[Callable],
     results: dict,  # Typing must allow empty dict for initializations
     aux: dict[str, Any] | None = None,
-    low_rank: bool = False,
+    low_rank: bool = False,  # question if this can be deleted  # noqa: FBT002
     **kwargs: Kwargs,
 ) -> dict:
     """Execute a set of functions and store their results in a dictionary.
@@ -45,6 +45,7 @@ def finalize_fns(
         fns: A list of callables to execute.
         results: A dictionary to store the outputs of the functions.
         aux: Auxiliary data passed to the functions.
+        low_rank: Whether to indicate low-rank computations (default: False).
         **kwargs: Additional arguments passed to each function.
 
     Returns:

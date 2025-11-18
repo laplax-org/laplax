@@ -39,10 +39,7 @@ def column(
         mv_jittable: Whether to JIT compile the basis vector generator
 
     Returns:
-        jax.Array: The idx-th column of the matrix
-
-    Raises:
-        TypeError: If `layout` is not provided when `mv` is a callable
+        jax.Array: The idx-th column of the matrix.
     """
     if isinstance(layout, int):
         size = layout
@@ -181,7 +178,7 @@ def to_dense(mv: Callable, layout: Layout, **kwargs: Kwargs) -> Array:
     return jax.tree.map(
         jnp.transpose,
         jax.lax.map(mv, identity, batch_size=kwargs.get("to_dense_batch_size")),
-    )  # jax.lax.map shares along the first axis (rows instead of columns).
+    )
 
 
 @singledispatch
@@ -194,10 +191,18 @@ def kronecker(
     mode: str = "map",
     batch_size: int | None = None,
 ) -> Callable:
-    """Create a Kronecker product MVP with selectable mapping mode.
+    r"""Create a Kronecker product MVP with selectable mapping mode.
+
     Uses (A ⊗ B) vec(X) = vec(B X A^T).
+
     - mode="vmap": vectorized mapping (fast, higher memory).
     - mode="map": sequential mapping via lax.map (lower memory).
+
+    Returns:
+        Callable: A matrix-vector product implementing the Kronecker product.
+
+    Raises:
+        ValueError: If ``mode`` is not ``\"vmap\"`` or ``\"map\"``.
     """
     if isinstance(layout_a, int) and isinstance(layout_b, int):
         size_a = layout_a
@@ -251,7 +256,8 @@ def kronecker_product_factors(
         factors_layout: List of layout specifications for each factor
 
     Returns:
-        A callable that computes the full Kronecker product matrix-vector product
+        A callable that computes the full Kronecker product matrix-vector
+        product.
 
     Example:
         >>> # For (A ⊗ B ⊗ C) @ v
