@@ -5,17 +5,17 @@ import pytest
 from torch.utils.data import DataLoader, Dataset
 
 from laplax.util.context_points import (
-    _flatten_spatial_dims,
-    _generate_low_discrepancy_sequence,
-    _halton_context_points,
-    _latin_hypercube_context_points,
-    _load_all_data_from_dataloader,
-    _make_grid_from_data_shape,
-    _normalize_to_unit_cube,
-    _pca_context_points,
-    _pca_transform_jax,
-    _random_context_points,
-    _sobol_context_points,
+    _flatten_spatial_dims,  # noqa: PLC2701
+    _generate_low_discrepancy_sequence,  # noqa: PLC2701
+    _halton_context_points,  # noqa: PLC2701
+    _latin_hypercube_context_points,  # noqa: PLC2701
+    _load_all_data_from_dataloader,  # noqa: PLC2701
+    _make_grid_from_data_shape,  # noqa: PLC2701
+    _normalize_to_unit_cube,  # noqa: PLC2701
+    _pca_context_points,  # noqa: PLC2701
+    _pca_transform_jax,  # noqa: PLC2701
+    _random_context_points,  # noqa: PLC2701
+    _sobol_context_points,  # noqa: PLC2701
     select_context_points,
 )
 
@@ -141,7 +141,11 @@ def _create_dummy_dataloader(
     output_shape: tuple = (10,),
     batch_size: int = 16,
 ) -> DataLoader:
-    """Create a dummy DataLoader for testing."""
+    """Create a dummy DataLoader for testing.
+
+    Returns:
+        DataLoader: A DataLoader yielding random input/target pairs.
+    """
     rng = np.random.default_rng(42)
     x = rng.standard_normal((n_samples, *input_shape)).astype(np.float32)
     y = rng.standard_normal((n_samples, *output_shape)).astype(np.float32)

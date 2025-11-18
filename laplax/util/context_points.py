@@ -43,7 +43,6 @@ def _flatten_spatial_dims(data: Array) -> tuple[Array, tuple]:
     """
     original_shape = data.shape
     batch_size = int(original_shape[0])
-    # Product of all spatial-and-temporal dims excluding the last channel dim
     middle = original_shape[1:-1]
     n_spatial = int(np.prod(middle)) if len(middle) > 0 else 1
     flattened = data.reshape(batch_size, n_spatial)
@@ -65,7 +64,6 @@ def _pca_transform_jax(
         Tuple of (transformed_data, fitted_pca_model).
     """
     y_np = np.array(y_data)
-    # Standardize features to zero mean, unit variance
     feat_mean = y_np.mean(axis=0, keepdims=True)
     feat_std = y_np.std(axis=0, keepdims=True) + 1e-8
     y_np_std = (y_np - feat_mean) / feat_std
@@ -97,8 +95,6 @@ def _generate_low_discrepancy_sequence(
     """
     if sequence_type.lower() == "sobol":
         sampler = qmc.Sobol(d=n_dims, scramble=True, seed=seed)
-        # SciPy's Sobol supports base-2 samples; caller should choose
-        # n_points accordingly.
         points = sampler.random_base2(n_points)
     elif sequence_type.lower() == "halton":
         sampler = qmc.Halton(d=n_dims, scramble=True, seed=seed)
@@ -186,18 +182,14 @@ def _pca_context_points(
         ld_scaled = centered * scales
         indices = _find_nearest_neighbors(ld_scaled, np.array(y_pca))
     else:
-        # Default: operate in normalized [0,1]^d cube
         indices = _find_nearest_neighbors(ld_points, y_pca_norm)
 
-    # Handle duplicates
     unique_indices = np.unique(indices)
     if len(unique_indices) < n_context_points:
         remaining = n_context_points - len(unique_indices)
         available = np.setdiff1d(np.arange(len(all_y)), unique_indices)
 
-        # Check if we have enough available points
         if len(available) < remaining:
-            # Use all available points
             indices = np.concatenate([unique_indices, available])
         else:
             rng = np.random.default_rng(seed)
@@ -206,7 +198,6 @@ def _pca_context_points(
     else:
         indices = unique_indices[:n_context_points]
 
-    # Extract context points
     context_x = all_x[indices]
     context_y = all_y[indices]
 
@@ -420,9 +411,7 @@ def _apply_grid_stride(
         return grid, context_x
 
     stride = (
-        grid_stride
-        if isinstance(grid_stride, (tuple, list))
-        else (int(grid_stride),)
+        grid_stride if isinstance(grid_stride, (tuple, list)) else (int(grid_stride),)
     )
 
     # 1D grid: (S,)
@@ -479,7 +468,6 @@ def select_context_points(
     if "+" in context_selection:
         strategies = [s.strip() for s in context_selection.split("+")]
 
-        # Divide points among strategies
         points_per_strategy = n_context_points // len(strategies)
         remainder = n_context_points % len(strategies)
 

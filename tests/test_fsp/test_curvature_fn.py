@@ -13,8 +13,20 @@ def _compute_curvature_fn(
     prior_var: PredArray,
     u: PredArray,
 ):
-    """Original function to compute the curvature function of FSP Laplace.
+    """Compute the curvature function of FSP Laplace.
+
     Can be used to test the compute_curvature_fn in fsp.
+
+    Args:
+        model_fn: Model function mapping inputs and parameters to outputs.
+        params: Parameters of the model.
+        data: Dataset dictionary containing at least ``\"test_inputs\"``.
+        ggn: Generalized Gauss-Newton matrix.
+        prior_var: Prior variance vector.
+        u: Direction vectors used for the curvature computation.
+
+    Returns:
+        jax.Array: Curvature factors stacked along the last axis.
     """  # noqa: D205
     eigvals_, eigvecs_ = jnp.linalg.eigh(ggn)
     eps = jnp.finfo(ggn.dtype).eps

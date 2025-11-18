@@ -170,7 +170,7 @@ def test_default_metrics_simple():
     expected_nll = -jnp.sum(jax.scipy.stats.norm.logpdf(resid, scale=std))
     np.testing.assert_allclose(nll, expected_nll)
 
-    # CRPS Gaussian – compare to formula used internally at zero residuals.
+    # CRPS Gaussian - compare to formula used internally at zero residuals.
     zeros = jnp.zeros_like(y_true)
     std1 = jnp.ones_like(y_true) * 0.7
     crps = crps_gaussian(pred_mean=zeros, pred_std=std1, target=zeros, scaled=False)

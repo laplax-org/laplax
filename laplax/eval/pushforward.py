@@ -674,13 +674,16 @@ def lin_pred_lsqrt_low_rank_cov(
     aux: dict[str, Any],
     **kwargs,
 ) -> tuple[dict[str, Array], dict[str, Any]]:
-    """Attach low-rank predictive info and cheap diagonal.
+    r"""Attach low-rank predictive info and cheap diagonal.
 
     - Keeps `low_rank_terms` (computed in lin_setup when low_rank=True).
     - Computes `pred_var` from the low-rank factors without densifying.
-      For Σ = U diag(S²) Uᵀ + σ² I with U ∈ R^{D×k},
+      For Σ = U diag(S²) Uᵀ + σ² I with U ∈ R^{D \times k},
       diag(Σ) = σ² 1 + Σ_j (S_j U[:, j])².
-    """  # noqa: DOC201
+
+    Returns:
+        tuple: Updated `results` and `aux`.
+    """
     if "pred_mean" not in results:
         results, aux = lin_pred_mean(results, aux, **kwargs)
 
