@@ -4,7 +4,6 @@ import numpy as np
 
 from laplax.curv.utils import LowRankTerms
 from laplax.eval.metrics import (
-    LOW_RANK_REGRESSION_METRICS,
     chi_squared,
     cov_low_rank_approximation,
     crps_gaussian,
