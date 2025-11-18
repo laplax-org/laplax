@@ -40,6 +40,7 @@ dev = [
     "tox-uv",
     "pyright",
     "pytest-cases",
+    "hypothesis"
     "flax",
     "equinox",
     "matplotlib",
