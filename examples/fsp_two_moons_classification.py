@@ -9,6 +9,8 @@ a standard Laplace (low-rank/Lanczos) posterior.
 It saves a visualization to `fsp_two_moons_classification.png`.
 """
 
+import operator
+
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
@@ -55,7 +57,11 @@ class MLP(nnx.Module):
 
 
 def split_model(model: MLP):
-    """Split Flax NNX model into function and parameters."""
+    """Split Flax NNX model into function and parameters.
+
+    Returns:
+        tuple[Callable, nnx.Params]: Model function and parameters.
+    """
     graphdef, params = nnx.split(model, nnx.Param)
 
     def model_fn(x, params):
@@ -71,6 +77,11 @@ def split_model(model: MLP):
 
 
 def binary_cross_entropy_loss(model, x_batch, y_batch):
+    """Binary cross-entropy loss.
+
+    Returns:
+        jax.Array: Scalar loss value.
+    """
     logits = jax.vmap(model)(x_batch).squeeze(-1)  # Squeeze to match y_batch shape
     return -jnp.mean(
         jax.nn.log_sigmoid(logits) * y_batch
@@ -89,7 +100,11 @@ def train_mlp_fsp(
     learning_rate=0.1,
     reg_weight=1.0,
 ):
-    """Train MLP with FSP objective using laplax.util.objective."""
+    """Train MLP with FSP objective using laplax.util.objective.
+
+    Returns:
+        MLP: Trained model.
+    """
     # Split model for laplax
     model_fn, params = split_model(model)
 
@@ -111,7 +126,11 @@ def train_mlp_fsp(
 
     @jax.jit
     def train_step(params, opt_state):
-        """Single training step - JIT compiled for speed."""
+        """Single training step - JIT compiled for speed.
+
+        Returns:
+            tuple: Updated parameters, optimizer state, and scalar loss.
+        """
 
         def loss_fn(params):
             # Cross-entropy term
@@ -138,10 +157,10 @@ def train_mlp_fsp(
 
     # Training loop
     for epoch in range(num_epochs):
-        params, opt_state, loss = train_step(params, opt_state)
+        params, opt_state, _loss = train_step(params, opt_state)
 
         if (epoch + 1) % 20 == 0:
-            print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss:.4f}")
+            pass
 
     # Update model with trained values
     graphdef, _ = nnx.split(model, nnx.Param)
@@ -171,40 +190,37 @@ def create_kernel_matrix(x_context, lengthscale=1.0, variance=1.0):
 
 
 def main():
-    print("=" * 70)
-    print("FSP vs Standard Laplace: Two Moons Classification (noise=0.0)")
-    print("=" * 70)
 
     # ------------------------------------------------------------------
     # 1) Data
     # ------------------------------------------------------------------
-    print("1) Generating two moons dataset (noise=0.0)...")
     X, y = make_moons(n_samples=300, noise=0.0, random_state=42)
     X = X.astype(np.float32)
     y = y.astype(np.float32)
 
     X_jax = jnp.array(X)
     y_jax = jnp.array(y)
-    print(f"   Dataset shape: X={X.shape}, y={y.shape}")
 
     # ------------------------------------------------------------------
     # 2) Set up FSP training with RBF kernel
     # ------------------------------------------------------------------
-    print("\n2) Setting up FSP training with RBF kernel...")
 
     # Select context points for FSP training
     n_context = 50
     rng = np.random.default_rng(42)
     context_indices = rng.choice(len(X), size=n_context, replace=False)
     x_context = X_jax[context_indices]
-    print(f"   Context points: {x_context.shape[0]}")
 
     # RBF kernel hyperparameters
     lengthscale = 0.5
     variance = 0.01
 
     def prior_cov_kernel(x1, x2):
-        """Prior covariance kernel for FSP objective."""
+        """Prior covariance kernel for FSP objective.
+
+        Returns:
+            jax.Array: Prior covariance matrix for inputs ``x1`` and ``x2``.
+        """
         K = rbf_kernel(x1, x2, lengthscale=lengthscale, variance=variance)
         # Add jitter for numerical stability
         K = K + 1e-5 * jnp.eye(K.shape[0])
@@ -216,7 +232,6 @@ def main():
     # ------------------------------------------------------------------
     # 3) Train model with FSP objective
     # ------------------------------------------------------------------
-    print("\n3) Training MLP with FSP objective (cross-entropy + regularization)...")
     model = MLP(hidden_dims=[32, 32], rngs=nnx.Rngs(0))
     model = train_mlp_fsp(
         model,
@@ -232,13 +247,11 @@ def main():
 
     logits = jax.vmap(model)(X_jax).squeeze(-1)
     predictions = (jax.nn.sigmoid(logits) > 0.5).astype(jnp.float32)
-    train_acc = jnp.mean(predictions == y_jax)
-    print(f"   Training accuracy: {float(train_acc):.2%}")
+    jnp.mean(predictions == y_jax)
 
     # ------------------------------------------------------------------
     # 4) FSP posterior
     # ------------------------------------------------------------------
-    print("\n4) Building FSP posterior with RBF kernel on context points...")
     # Note: Context points and kernel already defined for training
 
     def kernel_fn(v):
@@ -250,7 +263,11 @@ def main():
 
     # Wrap model to use two-logit trick for proper CE Hessian in FSP
     def model_fn_two_logit(x, params):
-        """Model function with two-logit output for cross-entropy."""
+        """Model function with two-logit output for cross-entropy.
+
+        Returns:
+            jax.Array: Two-logit outputs for binary classification.
+        """
         logit = model_fn(x, params).squeeze()
         return jnp.stack([jnp.zeros_like(logit), logit], axis=-1)
 
@@ -264,10 +281,6 @@ def main():
         prior_var_single[:, None], (1, 2)
     )  # Shape: (n_context, 2)
 
-    print(
-        f"   Prior variance range: [{float(prior_var_single.min()):.4f}, {float(prior_var_single.max()):.4f}]"
-    )
-
     posterior = create_fsp_posterior(
         model_fn=model_fn_two_logit,
         params=trained_params,
@@ -275,17 +288,15 @@ def main():
         kernel_structure=KernelStructure.NONE,
         kernel=kernel_fn,  # Shared kernel for both outputs
         prior_variance=prior_variance,  # Shape: (n_context, 2)
-        independent_outputs=True,  # Process each output independently with the same kernel
+        independent_outputs=True,  # Process outputs independently
         n_chunks=2,
         max_iter=50,
         is_classification=True,
     )
-    print(f"   FSP posterior rank: {posterior.rank}")
 
     # ------------------------------------------------------------------
     # 5) Standard Laplace (Lanczos low-rank curvature)
     # ------------------------------------------------------------------
-    print("\n5) Estimating standard Laplace curvature (Lanczos)...")
     flatten_fn, unflatten_fn = create_pytree_flattener(trained_params)
 
     def model_fn_flat(inp, flat_params):
@@ -318,12 +329,10 @@ def main():
         layout=flatten_fn(trained_params).shape[0],
     )
     standard_posterior = posterior_fn({"prior_prec": 1.0})
-    print(f"   Standard Laplace rank: {curv_estimate.U.shape[1]}")
 
     # ------------------------------------------------------------------
     # 6) Predictions & Sampling
     # ------------------------------------------------------------------
-    print("\n6) Creating prediction grid and sampling posteriors...")
     x_min, x_max = X[:, 0].min() - 0.5, X[:, 0].max() + 0.5
     y_min, y_max = X[:, 1].min() - 0.5, X[:, 1].max() + 0.5
     xx, yy = np.meshgrid(np.linspace(x_min, x_max, 100), np.linspace(y_min, y_max, 100))
@@ -335,7 +344,6 @@ def main():
     mean_probs = jax.nn.sigmoid(mean_logits)
 
     # FSP sampling
-    print("   Sampling from FSP posterior...")
     key = jax.random.PRNGKey(42)
     n_samples = 20
     fsp_samples = []
@@ -343,18 +351,17 @@ def main():
         key, subkey = jax.random.split(key)
         z = jax.random.normal(subkey, (posterior.rank,))
         delta_params = posterior.scale_mv(posterior.state)(z)
-        sample_params = jax.tree.map(lambda p, dp: p + dp, trained_params, delta_params)
+        sample_params = jax.tree.map(operator.add, trained_params, delta_params)
         # Use two-logit model and extract the relevant logit (index 1)
-        sample_two_logits = jax.vmap(lambda x: model_fn_two_logit(x, sample_params))(
-            grid_jax
-        )
+        sample_two_logits = jax.vmap(
+            lambda x, p=sample_params: model_fn_two_logit(x, p)
+        )(grid_jax)
         sample_logits = sample_two_logits[:, 1]  # Extract second logit
         fsp_samples.append(jax.nn.sigmoid(sample_logits))
     fsp_samples = jnp.stack(fsp_samples)
     fsp_std = jnp.std(fsp_samples, axis=0)
 
     # Standard Laplace sampling
-    print("   Sampling from Standard Laplace posterior...")
     key = jax.random.PRNGKey(42)
     standard_samples = []
     param_size = int(flatten_fn(trained_params).shape[0])
@@ -363,22 +370,17 @@ def main():
         z = jax.random.normal(subkey, (param_size,))
         delta_params_flat = standard_posterior.scale_mv(standard_posterior.state)(z)
         delta_params = unflatten_fn(delta_params_flat)
-        sample_params = jax.tree.map(lambda p, dp: p + dp, trained_params, delta_params)
-        sample_logits = jax.vmap(lambda x: model_fn(x, sample_params))(grid_jax)
+        sample_params = jax.tree.map(operator.add, trained_params, delta_params)
+        sample_logits = jax.vmap(
+            lambda x, p=sample_params: model_fn(x, p)
+        )(grid_jax)
         standard_samples.append(jax.nn.sigmoid(sample_logits))
     standard_samples = jnp.stack(standard_samples)
     standard_std = jnp.std(standard_samples, axis=0)
 
-    print(f"   FSP std range: [{float(fsp_std.min()):.3f}, {float(fsp_std.max()):.3f}]")
-    print(
-        "   Standard std range: "
-        f"[{float(standard_std.min()):.3f}, {float(standard_std.max()):.3f}]"
-    )
-
     # ------------------------------------------------------------------
     # 7) Visualization
     # ------------------------------------------------------------------
-    print("\n7) Saving visualizations to 'fsp_two_moons_classification.png'...")
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
 
     # Row 1: Mean predictions (shared)
@@ -472,27 +474,11 @@ def main():
     plt.tight_layout()
     plt.savefig("fsp_two_moons_classification.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print("   Saved 'fsp_two_moons_classification.png'.")
 
     # ------------------------------------------------------------------
     # 8) Summary
     # ------------------------------------------------------------------
-    print("\n" + "=" * 70)
-    print("Summary:")
-    print("=" * 70)
-    print("FSP Laplace:")
-    print(f"  - Rank: {posterior.rank}")
-    print(f"  - Mean uncertainty: {float(fsp_std.mean()):.4f}")
-    print(f"  - Max uncertainty: {float(fsp_std.max()):.4f}")
-    print("\nStandard Laplace:")
-    print(f"  - Rank: {curv_estimate.U.shape[1]}")
-    print(f"  - Mean uncertainty: {float(standard_std.mean()):.4f}")
-    print(f"  - Max uncertainty: {float(standard_std.max()):.4f}")
-    print("\nUncertainty difference (FSP - Standard):")
-    diff = fsp_std - standard_std
-    print(f"  - Mean: {float(diff.mean()):.4f}")
-    print(f"  - Max absolute: {float(jnp.abs(diff).max()):.4f}")
-    print("=" * 70)
+    fsp_std - standard_std
 
 
 if __name__ == "__main__":

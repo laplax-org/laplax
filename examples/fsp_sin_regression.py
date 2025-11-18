@@ -5,17 +5,16 @@ for regression on a truncated sine function, showing how FSP captures
 uncertainty in extrapolation regions.
 """
 
-import inspect
+
+import operator
 
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-import numpy as np
 import optax
 from flax import nnx
 
 from laplax.curv import KernelStructure, create_fsp_posterior
-from laplax.util.context_points import select_context_points
 from laplax.util.objective import create_fsp_objective
 
 jax.config.update("jax_enable_x64", True)
@@ -106,11 +105,19 @@ class MLP(nnx.Module):
 
 
 def split_model(model: MLP):
-    """Split Flax NNX model into function and parameters."""
+    """Split Flax NNX model into function and parameters.
+
+    Returns:
+        tuple[Callable, nnx.Params]: Model function and parameters.
+    """
     graphdef, params = nnx.split(model, nnx.Param)
 
     def model_fn(x, params):
-        """Model function that takes input and parameters."""
+        """Model function that takes input and parameters.
+
+        Returns:
+            jax.Array: Model predictions for input ``x``.
+        """
         model_copy = nnx.merge(graphdef, params)
         return model_copy(x)
 
@@ -145,7 +152,11 @@ def train_mlp_fsp(
     num_epochs=1000,
     learning_rate=0.01,
 ):
-    """Train MLP with FSP objective using create_fsp_objective."""
+    """Train MLP with FSP objective using create_fsp_objective.
+
+    Returns:
+        tuple[MLP, NoiseScale]: Trained model and noise scale.
+    """
     # Split model for laplax
     model_fn, params = split_model(model)
 
@@ -169,7 +180,12 @@ def train_mlp_fsp(
 
     @jax.jit
     def train_step(params, noise_log_scale, params_opt_state, noise_opt_state):
-        """Single training step - JIT compiled for speed."""
+        """Single training step - JIT compiled for speed.
+
+        Returns:
+            tuple: Updated parameters, noise log-scale, optimizer states,
+            and scalar loss.
+        """
 
         def loss_fn(params, noise_log_scale):
             noise_val = jnp.exp(noise_log_scale)
@@ -196,15 +212,12 @@ def train_mlp_fsp(
     # Training loop
     noise_log_scale = noise_scale.log_scale.value
     for epoch in range(num_epochs):
-        params, noise_log_scale, params_opt_state, noise_opt_state, loss = train_step(
+        params, noise_log_scale, params_opt_state, noise_opt_state, _loss = train_step(
             params, noise_log_scale, params_opt_state, noise_opt_state
         )
 
         if (epoch + 1) % 200 == 0:
-            noise_val = jnp.exp(noise_log_scale)
-            print(
-                f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss:.4f}, Noise: {noise_val:.4f}"
-            )
+            jnp.exp(noise_log_scale)
 
     # Update model and noise_scale with trained values
     graphdef, _ = nnx.split(model, nnx.Param)
@@ -218,7 +231,11 @@ def train_mlp_fsp(
 # FSP Posterior with RBF Kernel
 # ==============================================================================
 def rbf_kernel(x1, x2, lengthscale=1.0, variance=1.0):
-    """Radial Basis Function (RBF) kernel (squared exponential)."""
+    """Radial Basis Function (RBF) kernel (squared exponential).
+
+    Returns:
+        jax.Array: Kernel matrix evaluated at ``x1`` and ``x2``.
+    """
     sqdist = (
         jnp.sum(x1**2, 1).reshape(-1, 1) + jnp.sum(x2**2, 1) - 2 * jnp.dot(x1, x2.T)
     )
@@ -228,7 +245,10 @@ def rbf_kernel(x1, x2, lengthscale=1.0, variance=1.0):
 def periodic_kernel(x1, x2, lengthscale=1.0, variance=1.0, period=2.0):
     """Periodic kernel function for periodic data like sine waves.
 
-    k(x1, x2) = variance * exp(-||x1 - x2||^2 / (2 * lengthscale^2))
+    k(x1, x2) = variance * exp(-||x1 - x2||^2 / (2 * lengthscale^2)).
+
+    Returns:
+        jax.Array: Periodic kernel matrix evaluated at ``x1`` and ``x2``.
     """
     dist = jnp.sqrt(jnp.sum((x1[:, None, :] - x2[None, :, :]) ** 2, axis=-1))
     sin_term = jnp.sin(jnp.pi * dist / period)
@@ -236,7 +256,11 @@ def periodic_kernel(x1, x2, lengthscale=1.0, variance=1.0, period=2.0):
 
 
 def create_kernel_matrix(x_context, lengthscale=1.0, variance=1.0):
-    """Create RBF kernel matrix."""
+    """Create RBF kernel matrix.
+
+    Returns:
+        jax.Array: Kernel matrix evaluated at ``x_context``.
+    """
     K = periodic_kernel(x_context, x_context, lengthscale, variance, period=1.0)
     K = K + 1e-6 * jnp.eye(K.shape[0])
     return K
@@ -249,18 +273,12 @@ def create_kernel_matrix(x_context, lengthscale=1.0, variance=1.0):
 
 def main():
     """Run FSP Laplace on truncated sine regression."""
-    print("=" * 70)
-    print("FSP Laplace: Truncated Sine Regression")
-    print("=" * 70)
-
     # Generate training data
-    print("\n1. Generating truncated sine data...")
     key = jax.random.PRNGKey(42)
     key, data_key = jax.random.split(key)
     X_train, y_train = generate_truncated_sine(
         data_key, n_samples=100, feature_dim=1, noise_std=0.1
     )
-    print(f"   Training data shape: X={X_train.shape}, y={y_train.shape}")
 
     # Set up context points and kernel for FSP training
     x_context = jnp.linspace(-1.5, 1.5, 200).reshape(-1, 1)
@@ -270,7 +288,11 @@ def main():
     period = 1.00
 
     def prior_cov_kernel(x1, x2):
-        """Prior covariance kernel for FSP objective."""
+        """Prior covariance kernel for FSP objective.
+
+        Returns:
+            jax.Array: Prior covariance matrix for inputs ``x1`` and ``x2``.
+        """
         K = periodic_kernel(
             x1, x2, lengthscale=lengthscale, variance=variance, period=period
         )
@@ -278,7 +300,6 @@ def main():
         return K
 
     # Train model with FSP objective
-    print("\n2. Training MLP with FSP objective...")
     key, model_key = jax.random.split(key)
     model = MLP(hidden_dims=[50, 50], rngs=nnx.Rngs(int(model_key[0])))
     noise_scale = NoiseScale(initial_value=0.1)
@@ -298,13 +319,14 @@ def main():
         learning_rate=0.01,
     )
 
-    print(f"   Final noise scale: {noise_scale.scale:.4f}")
-
     # Create FSP posterior
-    print("\n3. Computing FSP posterior...")
 
     def kernel_fn(v):
-        """Kernel matrix-vector product."""
+        """Kernel matrix-vector product.
+
+        Returns:
+            jax.Array: Product of the kernel matrix with vector ``v``.
+        """
         K = create_kernel_matrix(x_context, lengthscale=lengthscale, variance=variance)
         return K @ v
 
@@ -313,10 +335,6 @@ def main():
         x_context, lengthscale=lengthscale, variance=variance
     )
     prior_variance = jnp.diag(prior_cov)
-
-    print(
-        f"   Prior variance range: [{prior_variance.min():.4f}, {prior_variance.max():.4f}]"
-    )
 
     # Split model for laplax
     model_fn, trained_params = split_model(model)
@@ -335,41 +353,36 @@ def main():
         regression_noise_scale=float(noise_scale.scale),
     )
 
-    print(f"   FSP posterior rank: {posterior.rank}")
-
     # Make predictions with uncertainty
-    print("\n4. Making predictions with uncertainty...")
 
     # Create test grid including extrapolation region
     x_test = jnp.linspace(-1.5, 1.5, 300).reshape(-1, 1)
 
     # Mean predictions
-    mean_preds = jax.vmap(model)(x_test)
+    jax.vmap(model)(x_test)
 
     # Sample from posterior
-    print("   Sampling from FSP posterior...")
-    key, sample_key = jax.random.split(key)
+    key, _sample_key = jax.random.split(key)
     n_samples = 50
     samples = []
 
-    for i in range(n_samples):
+    for _i in range(n_samples):
         key, subkey = jax.random.split(key)
         z = jax.random.normal(subkey, (posterior.rank,))
         delta_params = posterior.scale_mv(posterior.state)(z)
-        sample_params = jax.tree.map(lambda p, dp: p + dp, trained_params, delta_params)
+        sample_params = jax.tree.map(operator.add, trained_params, delta_params)
 
-        sample_preds = jax.vmap(lambda x: model_fn(x, sample_params))(x_test)
+        sample_preds = jax.vmap(
+            lambda x, p=sample_params: model_fn(x, p)
+        )(x_test)
         samples.append(sample_preds)
 
     samples = jnp.stack(samples)
     pred_mean = jnp.mean(samples, axis=0).squeeze()
     pred_std = jnp.std(samples, axis=0).squeeze()
 
-    print(f"   Prediction std range: [{pred_std.min():.3f}, {pred_std.max():.3f}]")
-
     # Visualize results
-    print("\n5. Creating visualizations...")
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    _fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     # True function for reference
     x_true = jnp.linspace(-1.5, 1.5, 1000)
@@ -386,7 +399,7 @@ def main():
         pred_mean + 2 * pred_std,
         alpha=0.3,
         color="red",
-        label="±2σ (95% CI)",
+        label="±2 sigma (95% CI)",
     )
 
     # Highlight extrapolation regions
@@ -419,21 +432,8 @@ def main():
     plt.tight_layout()
     plt.show()
     plt.savefig("fsp_sin_regression.png", dpi=150, bbox_inches="tight")
-    print("   Saved visualization to 'fsp_sin_regression.png'")
 
     # Summary
-    print("\n" + "=" * 70)
-    print("Summary:")
-    print("=" * 70)
-    print(f"FSP Posterior:")
-    print(f"  - Rank: {posterior.rank}")
-    print(f"  - Mean prediction std: {pred_std.mean():.4f}")
-    print(f"  - Max prediction std: {pred_std.max():.4f}")
-    print(f"  - Final noise scale: {noise_scale.scale:.4f}")
-    print(
-        "\nNote: Uncertainty increases in extrapolation regions ([-1.5,-1] ∪ [-0.5,0.5] ∪ [1,1.5])"
-    )
-    print("=" * 70)
 
 
 if __name__ == "__main__":
