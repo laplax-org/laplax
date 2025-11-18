@@ -312,11 +312,11 @@ def compute_posterior_components(
     Returns (cov_sqrt, truncation_idx)
     """
     # Truncated SVD
-    _u, s = _truncated_left_svd(M_flat)
+    u_, s = _truncated_left_svd(M_flat)
 
     # Unflatten for GGN computation
-    flatten, unflatten = create_partial_pytree_flattener(params)
-    u = unflatten(_u)
+    _flatten, unflatten = create_partial_pytree_flattener(params)
+    u = unflatten(u_)
 
     # Efficient GGN quadratic form U^T G U
     uTggnu = _compute_fsp_ggn_gram(
@@ -335,7 +335,7 @@ def compute_posterior_components(
     eigvecs = jnp.flip(eigvecs, axis=1)
 
     # Compute posterior covariance sqrt
-    cov_sqrt = _u @ (eigvecs[:, ::-1] / jnp.sqrt(jnp.abs(eigvals[::-1])))
+    cov_sqrt = u_ @ (eigvecs[:, ::-1] / jnp.sqrt(jnp.abs(eigvals[::-1])))
 
     # Compute truncation index
     truncation_idx = compute_posterior_truncation_index(
@@ -442,7 +442,7 @@ def _lanczos_init(model_fn: ModelFn, params: Params, xs: InputArray, num_chunks:
         reduce_axes = tuple(range(1 + len(spatial_dims), b.ndim))
         b = jnp.mean(b, axis=reduce_axes)
 
-    b = b.reshape((n_function,) + spatial_dims)
+    b = b.reshape((n_function, *spatial_dims))
 
     initial_vectors = []
 
@@ -545,7 +545,7 @@ def create_fsp_posterior_kronecker(
     prior_variance: jnp.ndarray,
     n_chunks: int,
     *,
-    spatial_max_iters: list[int] | None = [8, 3],
+    spatial_max_iters: list[int] | None = None,
     is_classification: bool = False,
     chunk_mode: str = "scan",
     kron_mode: str = "dense",  # 'dense' or 'streaming'
@@ -579,6 +579,8 @@ def create_fsp_posterior_kronecker(
     Posterior
         FSP posterior approximation
     """
+    if spatial_max_iters is None:
+        spatial_max_iters = [8, 3]
     y0 = jax.vmap(lambda x: model_fn(x, params))(x_context)
     output_shape = y0.shape
 
@@ -589,7 +591,7 @@ def create_fsp_posterior_kronecker(
     while n_functions % n_chunks_eff != 0 and n_chunks_eff > 1:
         n_chunks_eff -= 1
 
-    dim = sum(x.size for x in jax.tree_util.tree_leaves(params))
+    sum(x.size for x in jax.tree_util.tree_leaves(params))
 
     initial_vectors_function, initial_vectors_spatial = _lanczos_init(
         model_fn, params, x_context, num_chunks=n_chunks_eff
@@ -635,7 +637,7 @@ def create_fsp_posterior_kronecker(
 
         k_inv_sqrt_mv = util_mv.kronecker_product_factors(all_mvs, all_layouts)
         total_rank = int(jnp.prod(jnp.array(all_layouts)))
-        out_shape = (n_functions,) + tuple(int(s) for s in output_shape[1:])
+        out_shape = (n_functions, *tuple(int(s) for s in output_shape[1:]))
 
         M = _accumulate_M_over_kron_streaming(
             model_fn,
@@ -652,10 +654,10 @@ def create_fsp_posterior_kronecker(
     M_flat = flatten(M)
 
     # Truncated left SVD
-    _u, s = _truncated_left_svd(M_flat)
+    u_, s = _truncated_left_svd(M_flat)
 
     # Unflatten U to pytree (with trailing rank dim k)
-    u = unflatten(_u)
+    u = unflatten(u_)
     uTggnu = _compute_fsp_ggn_gram(
         model_fn=model_fn,
         params=params,
@@ -673,7 +675,7 @@ def create_fsp_posterior_kronecker(
     eigvecs = jnp.flip(eigvecs, axis=1)
 
     # Compute S: $S = U_M U_A D_A^\dagger$
-    cov_sqrt = _u @ (eigvecs[:, ::-1] / jnp.sqrt(jnp.abs(eigvals[::-1])))
+    cov_sqrt = u_ @ (eigvecs[:, ::-1] / jnp.sqrt(jnp.abs(eigvals[::-1])))
 
     truncation_idx = compute_posterior_truncation_index(
         model_fn=model_fn,
@@ -751,10 +753,10 @@ def create_fsp_posterior_none(
     while n_functions % n_chunks_eff != 0 and n_chunks_eff > 1:
         n_chunks_eff -= 1
 
-    dim = sum(x.size for x in jax.tree_util.tree_leaves(params))
+    sum(x.size for x in jax.tree_util.tree_leaves(params))
 
     # Initialize with ones (simple initialization for unstructured case)
-    ones_pytree = jax.tree.map(lambda x: jnp.ones_like(x), params)
+    ones_pytree = jax.tree.map(jnp.ones_like, params)
     model_jvp = create_model_jvp(params, ones_pytree, model_fn, in_axes=0, out_axes=0)
     b = model_jvp(x_context)
 
@@ -807,9 +809,9 @@ def create_fsp_posterior_none(
     M_flat = flatten(M)
 
     # Truncated left SVD
-    _u, s = _truncated_left_svd(M_flat)
+    u_, s = _truncated_left_svd(M_flat)
 
-    u = unflatten(_u)
+    u = unflatten(u_)
     uTggnu = _compute_fsp_ggn_gram(
         model_fn=model_fn,
         params=params,
@@ -827,7 +829,7 @@ def create_fsp_posterior_none(
     eigvecs = jnp.flip(eigvecs, axis=1)
 
     # Compute S
-    cov_sqrt = _u @ (eigvecs[:, ::-1] / jnp.sqrt(jnp.abs(eigvals[::-1])))
+    cov_sqrt = u_ @ (eigvecs[:, ::-1] / jnp.sqrt(jnp.abs(eigvals[::-1])))
 
     truncation_idx = compute_posterior_truncation_index(
         model_fn=model_fn,

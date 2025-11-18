@@ -313,7 +313,7 @@ def lanczos_invert_sqrt(
         return ds, rs, rs_norm_sq, p, eta, k + 1
 
     def _cond_fun(values):
-        _, rs, rs_norm_sq, _, eta, k = values
+        _, _rs, rs_norm_sq, _, eta, k = values
         return (rs_norm_sq[k] > tol**2) & (k < max_iter) & (eta > min_eta)
 
     # Normalize starting vector and initialize storage

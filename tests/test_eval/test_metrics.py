@@ -147,7 +147,8 @@ def test_low_rank_marginal_nlpd_uses_pred_var():
         observation_noise=jnp.log(sigma),
     )
     # Verify keys and finite values
-    assert "marginal_nlpd_per_input" in out and "mse_per_input" in out
+    assert "marginal_nlpd_per_input" in out
+    assert "mse_per_input" in out
     assert jnp.isfinite(out["marginal_nlpd_per_input"]).item()
 
 

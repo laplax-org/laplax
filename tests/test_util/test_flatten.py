@@ -20,16 +20,25 @@ def pytree_params(draw):
 
     return key, depth, branching_factor, num_array_dims
 
+
 # ----- Utility Functions -----
 
 
 def create_kernel_size(kernel_size, dim):
-    """Creates a tuple of length dim filled with kernel_size."""
+    """Creates a tuple of length dim filled with kernel_size.
+
+    Returns:
+        Tuple of length dim filled with kernel_size values.
+    """
     return (kernel_size,) * dim
 
 
 def get_conv_params(dim):
-    """Get kernel size and strides for a given dimension."""
+    """Get kernel size and strides for a given dimension.
+
+    Returns:
+        Tuple of (kernel_size, strides).
+    """
     kernel_size = create_kernel_size(3, dim)
     strides = create_kernel_size(1, dim)
     return kernel_size, strides
@@ -37,7 +46,7 @@ def get_conv_params(dim):
 
 def create_random_pytree(key, depth, branching_factor, num_array_dims):
     """Create random pytree where each leaf is a multidimensional array.
-    
+
     Parameters:
         key: jax.random.PRNGKey - random key.
         depth (int): Depth of the tree.
@@ -45,55 +54,80 @@ def create_random_pytree(key, depth, branching_factor, num_array_dims):
         num_array_dims (int): Number of dimensions for arrays.
         axis (int): concatenation axis of flatten/unflatten operation.
         axis_shape (int): shape of the axis dimension. default is 5 for no reason.
-    
+
     Returns:
         Random Pytree with JAX arrays as leaves.
     """
     key_global, key = jax.random.split(key)
-    shapes = list(jax.random.randint(key_global, shape=(num_array_dims,), minval=1, maxval=6))
+    shapes = list(
+        jax.random.randint(key_global, shape=(num_array_dims,), minval=1, maxval=6)
+    )
 
     def create_array(key):
-        '''Create a random array with shape (num_array_dims,)'''
-        leaf_shape = tuple(shapes[i] for i in range(num_array_dims))
+        """Create a random array with shape (num_array_dims,).
+
+        Returns:
+            Random JAX array with specified shape.
+        """
+        tuple(shapes[i] for i in range(num_array_dims))
         return jax.random.uniform(key, shape=shapes)
 
     def create_tree(key, current_depth):
         if current_depth == 0:
             return create_array(key)
         keys = jax.random.split(key, branching_factor)
-        return {f'node_{i}': create_tree(keys[i], current_depth - 1)
-                for i in range(branching_factor)}
+        return {
+            f"node_{i}": create_tree(keys[i], current_depth - 1)
+            for i in range(branching_factor)
+        }
 
     return create_tree(key, depth)
+
 
 # ----- Model Creation Helpers -----
 
 
 def create_cnn_nnx(num_layers, features, dim=1, key=None):
-    """Create a CNN using nnx."""
+    """Create a CNN using nnx.
+
+    Returns:
+        Sequential CNN model using NNX.
+    """
     kernel_size, strides = get_conv_params(dim)
 
     layers = []
     for i in range(num_layers - 1):
-        conv = nnx.Conv(in_features=features[i], out_features=features[i + 1],
-                        kernel_size=kernel_size, strides=strides, rngs=key)
-        layers.append(lambda x, conv=conv: conv(x))
-        layers.append(lambda x: nnx.relu(x))
+        conv = nnx.Conv(
+            in_features=features[i],
+            out_features=features[i + 1],
+            kernel_size=kernel_size,
+            strides=strides,
+            rngs=key,
+        )
+        layers.extend((lambda x, conv=conv: conv(x), nnx.relu))
     return nnx.Sequential(*layers)
 
 
 def create_cnn_linen(x, num_layers, features, dim=1):
-    """Create a CNN using linen."""
+    """Create a CNN using linen.
+
+    Returns:
+        Output of the CNN model.
+    """
     kernel_size, strides = get_conv_params(dim)
 
-    for i in range(num_layers):
+    for _i in range(num_layers):
         x = nn.Conv(features=features, kernel_size=kernel_size, strides=strides)(x)
         x = nn.relu(x)
     return x
 
 
 def create_mlp_eqx(features):
-    """Create an MLP using equinox."""
+    """Create an MLP using equinox.
+
+    Returns:
+        LinearNN model using Equinox.
+    """
     key = jax.random.split(jax.random.PRNGKey(0), len(features))
     model = LinearNN(key, features)
     return model
@@ -106,7 +140,8 @@ class LinearNN(eqx.Module):
 
     def __init__(self, keys, hidden):
         self.layers = [
-            eqx.nn.Linear(hidden[i], hidden[i + 1], key=keys[i]) for i in range(len(hidden) - 1)
+            eqx.nn.Linear(hidden[i], hidden[i + 1], key=keys[i])
+            for i in range(len(hidden) - 1)
         ]
         self.extra_bias = jax.random.uniform(keys[0], (10,))
 
@@ -150,7 +185,9 @@ class ConvBlock(nnx.Module):
 class CNN(nnx.Module):
     def __init__(self, num_layers: int, dim: int, kernel_size: int, *, rngs: nnx.Rngs):
         kernel_size = create_kernel_size(kernel_size, dim)
-        self.blocks = [ConvBlock(dim, kernel_size, rngs=rngs) for _ in range(num_layers)]
+        self.blocks = [
+            ConvBlock(dim, kernel_size, rngs=rngs) for _ in range(num_layers)
+        ]
 
     def __call__(self, x: jax.Array):
         for block in self.blocks:
@@ -158,7 +195,7 @@ class CNN(nnx.Module):
         return x
 
 
-class CNN_nnx(nnx.Module):
+class CnnNnx(nnx.Module):
     def __init__(self, num_layers, features, dim=1, rngs=None):
         self.key = rngs
         self.model = create_cnn_nnx(num_layers, features, dim, self.key)
@@ -167,7 +204,7 @@ class CNN_nnx(nnx.Module):
         return self.model(x)
 
 
-class CNN_linen(nn.Module):
+class CnnLinen(nn.Module):
     num_layers: int
     features: int
     dim: int = 1
@@ -175,6 +212,7 @@ class CNN_linen(nn.Module):
     @nn.compact
     def __call__(self, x):
         return create_cnn_linen(x, self.num_layers, self.features, self.dim)
+
 
 # ----- Testing Utilities -----
 
@@ -194,9 +232,7 @@ def round_trip(params):
     # Check values match
     values_match = jax.tree_util.tree_all(
         jax.tree_util.tree_map(
-            lambda a, b: jnp.allclose(a, b, rtol=1e-5, atol=1e-5),
-            params,
-            reconstructed
+            lambda a, b: jnp.allclose(a, b, rtol=1e-5, atol=1e-5), params, reconstructed
         )
     )
     assert values_match, "Values in reconstructed PyTree don't match original"
@@ -204,21 +240,38 @@ def round_trip(params):
 
 def assert_correct_shapes(params, dim):
     """Assert that flattened parameters have correct shape."""
-    flatten, unflatten = create_partial_pytree_flattener(params)
+    flatten, _ = create_partial_pytree_flattener(params)
     flat = flatten(params)
-    assert flat.shape[-1] == dim, f"Expected last dimension to be {dim}, got {flat.shape[-1]}"
+    assert flat.shape[-1] == dim, (
+        f"Expected last dimension to be {dim}, got {flat.shape[-1]}"
+    )
     assert flat.ndim == 2, f"Expected 2D array, got {flat.ndim}D"
 
 
 def create_input_shape(dim, batch_size, features, size=4):
-    """Create appropriate input shape for testing."""
+    """Create appropriate input shape for testing.
+
+    Parameters:
+        dim (int): Dimension of the input (1D, 2D, or 3D).
+        batch_size (int): Batch size.
+        features (int): Number of features/channels.
+        size (int): Size of each spatial dimension.
+
+    Returns:
+        Tuple representing the input shape.
+
+    Raises:
+        ValueError: If dim is not 1, 2, or 3.
+    """
     if dim == 1:
         return (batch_size, size, features)
     if dim == 2:
         return (batch_size, size, size, features)
     if dim == 3:
         return (batch_size, size, size, size, features)
-    raise ValueError(f"Invalid dimension: {dim}")
+    msg = f"Invalid dimension: {dim}"
+    raise ValueError(msg)
+
 
 # ----- Tests -----
 
@@ -236,7 +289,7 @@ def test_cnn_linen(num_layers, features, dim, batch_size):
     input_shape = create_input_shape(dim, batch_size, features)
 
     x = jnp.ones(input_shape)
-    model = CNN_linen(num_layers=num_layers, features=features, dim=dim)
+    model = CnnLinen(num_layers=num_layers, features=features, dim=dim)
     params = model.init(key, x)
     round_trip(params)
 
@@ -249,14 +302,15 @@ def test_cnn_linen(num_layers, features, dim, batch_size):
 @hp.settings(deadline=None)
 def test_block(num_layers, dim, kernel_size):
     """Test PyTree flattening with CNN blocks."""
-    key = jax.random.PRNGKey(0)
-    model = CNN(num_layers=num_layers, dim=dim, kernel_size=kernel_size, rngs=nnx.Rngs(2))
-    graph, params = nnx.split(model)
+    model = CNN(
+        num_layers=num_layers, dim=dim, kernel_size=kernel_size, rngs=nnx.Rngs(2)
+    )
+    _, params = nnx.split(model)
     round_trip(params)
 
 
 @given(
-        pytree_params(),
+    pytree_params(),
 )
 @hp.settings(deadline=None)
 def test_partial_pytree_flattener_with_random_pytree(params):
@@ -269,7 +323,7 @@ def test_partial_pytree_flattener_with_random_pytree(params):
 
 def test_mlp_eqx():
     model = create_mlp_eqx([1, 16, 32])
-    params, static = eqx.partition(model, eqx.is_array)
+    params, _static = eqx.partition(model, eqx.is_array)
 
     round_trip(params)
     assert_correct_shapes(params, 32)

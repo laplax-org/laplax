@@ -143,8 +143,8 @@ def _create_dummy_dataloader(
 ) -> DataLoader:
     """Create a dummy DataLoader for testing."""
     rng = np.random.default_rng(42)
-    x = rng.standard_normal((n_samples,) + input_shape).astype(np.float32)
-    y = rng.standard_normal((n_samples,) + output_shape).astype(np.float32)
+    x = rng.standard_normal((n_samples, *input_shape)).astype(np.float32)
+    y = rng.standard_normal((n_samples, *output_shape)).astype(np.float32)
 
     dataset = TensorDataset(x, y)
     return DataLoader(dataset, batch_size=batch_size, shuffle=False)
@@ -211,7 +211,8 @@ def test_generate_low_discrepancy_sobol():
     )
 
     assert points.shape == (32, 5)
-    assert np.all(points >= 0.0) and np.all(points <= 1.0)
+    assert np.all(points >= 0.0)
+    assert np.all(points <= 1.0)
 
 
 def test_generate_low_discrepancy_halton():
@@ -221,7 +222,8 @@ def test_generate_low_discrepancy_halton():
     )
 
     assert points.shape == (50, 5)
-    assert np.all(points >= 0.0) and np.all(points <= 1.0)
+    assert np.all(points >= 0.0)
+    assert np.all(points <= 1.0)
 
 
 def test_generate_low_discrepancy_latin_hypercube():
@@ -231,7 +233,8 @@ def test_generate_low_discrepancy_latin_hypercube():
     )
 
     assert points.shape == (50, 5)
-    assert np.all(points >= 0.0) and np.all(points <= 1.0)
+    assert np.all(points >= 0.0)
+    assert np.all(points <= 1.0)
 
 
 def test_generate_low_discrepancy_invalid_type():
@@ -250,7 +253,8 @@ def test_normalize_to_unit_cube():
     assert normalized.shape == data.shape
     np.testing.assert_array_equal(data_min, [1.0, 2.0])
     np.testing.assert_array_equal(data_max, [5.0, 6.0])
-    assert np.all(normalized >= 0.0) and np.all(normalized <= 1.0)
+    assert np.all(normalized >= 0.0)
+    assert np.all(normalized <= 1.0)
 
 
 def test_random_context_points():
@@ -405,7 +409,7 @@ def test_select_context_points_sobol():
     dataloader = _create_dummy_dataloader(n_samples=100)
     n_context = 16
 
-    context_x, context_y, grid = select_context_points(
+    context_x, context_y, _grid = select_context_points(
         dataloader,
         context_selection="sobol",
         n_context_points=n_context,
@@ -422,7 +426,7 @@ def test_select_context_points_halton():
     dataloader = _create_dummy_dataloader(n_samples=100)
     n_context = 20
 
-    context_x, context_y, grid = select_context_points(
+    context_x, context_y, _grid = select_context_points(
         dataloader,
         context_selection="halton",
         n_context_points=n_context,
@@ -439,7 +443,7 @@ def test_select_context_points_latin_hypercube():
     dataloader = _create_dummy_dataloader(n_samples=100)
     n_context = 20
 
-    context_x, context_y, grid = select_context_points(
+    context_x, context_y, _grid = select_context_points(
         dataloader,
         context_selection="latin_hypercube",
         n_context_points=n_context,
@@ -456,7 +460,7 @@ def test_select_context_points_combined_strategy():
     dataloader = _create_dummy_dataloader(n_samples=100)
     n_context = 20
 
-    context_x, context_y, grid = select_context_points(
+    context_x, context_y, _grid = select_context_points(
         dataloader,
         context_selection="random+sobol",
         n_context_points=n_context,
@@ -473,7 +477,7 @@ def test_select_context_points_combined_three_strategies():
     dataloader = _create_dummy_dataloader(n_samples=100)
     n_context = 30
 
-    context_x, context_y, grid = select_context_points(
+    context_x, context_y, _grid = select_context_points(
         dataloader,
         context_selection="random+sobol+halton",
         n_context_points=n_context,
@@ -490,7 +494,7 @@ def test_select_context_points_combined_uneven_split():
     dataloader = _create_dummy_dataloader(n_samples=100)
     n_context = 25
 
-    context_x, context_y, grid = select_context_points(
+    context_x, _context_y, _grid = select_context_points(
         dataloader,
         context_selection="random+sobol",
         n_context_points=n_context,
@@ -505,11 +509,11 @@ def test_select_context_points_reproducibility_across_strategies():
     dataloader = _create_dummy_dataloader(n_samples=100)
     n_context = 20
 
-    cx_random, cy_random, _ = select_context_points(
+    cx_random, _cy_random, _ = select_context_points(
         dataloader, context_selection="random", n_context_points=n_context, seed=42
     )
 
-    cx_sobol, cy_sobol, _ = select_context_points(
+    cx_sobol, _cy_sobol, _ = select_context_points(
         dataloader,
         context_selection="sobol",
         n_context_points=n_context,
@@ -536,7 +540,7 @@ def test_select_context_points_with_grid_stride_1d():
     dataloader = _create_dummy_dataloader(n_samples=100, input_shape=(64, 2))
     n_context = 20
 
-    context_x, context_y, grid = select_context_points(
+    context_x, _context_y, grid = select_context_points(
         dataloader,
         context_selection="random",
         n_context_points=n_context,
@@ -553,7 +557,7 @@ def test_select_context_points_with_time_keep():
     dataloader = _create_dummy_dataloader(n_samples=100, input_shape=(32, 10, 2))
     n_context = 20
 
-    context_x, context_y, grid = select_context_points(
+    context_x, _context_y, _grid = select_context_points(
         dataloader,
         context_selection="random",
         n_context_points=n_context,
@@ -587,10 +591,10 @@ def test_pca_aliases():
 def test_context_y_values_match_input_data():
     """Test that context_y values actually come from the dataset."""
     dataloader = _create_dummy_dataloader(n_samples=50, batch_size=50)
-    all_x, all_y = _load_all_data_from_dataloader(dataloader)
+    _all_x, all_y = _load_all_data_from_dataloader(dataloader)
 
     n_context = 10
-    context_x, context_y, _ = select_context_points(
+    _context_x, context_y, _ = select_context_points(
         dataloader, context_selection="random", n_context_points=n_context, seed=42
     )
 
@@ -608,11 +612,11 @@ def test_different_seeds_produce_different_results():
     dataloader = _create_dummy_dataloader(n_samples=100)
     n_context = 20
 
-    cx1, cy1, _ = select_context_points(
+    cx1, _cy1, _ = select_context_points(
         dataloader, context_selection="random", n_context_points=n_context, seed=42
     )
 
-    cx2, cy2, _ = select_context_points(
+    cx2, _cy2, _ = select_context_points(
         dataloader, context_selection="random", n_context_points=n_context, seed=123
     )
 

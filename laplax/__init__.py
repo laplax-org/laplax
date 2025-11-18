@@ -12,8 +12,9 @@ __version__ = importlib.metadata.version("laplax")
 
 
 def __getattr__(name: str):  # pragma: no cover - trivial passthrough
-    if name in ("calibration", "evaluation", "laplace"):
+    if name in {"calibration", "evaluation", "laplace"}:
         from . import api as _api
 
         return getattr(_api, name)
-    raise AttributeError(f"module 'laplax' has no attribute {name!r}")
+    msg = f"module 'laplax' has no attribute {name!r}"
+    raise AttributeError(msg)

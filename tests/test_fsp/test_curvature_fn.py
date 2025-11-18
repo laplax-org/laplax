@@ -16,11 +16,11 @@ def _compute_curvature_fn(
     """Original function to compute the curvature function of FSP Laplace.
     Can be used to test the compute_curvature_fn in fsp.
     """  # noqa: D205
-    _eigvals, _eigvecs = jnp.linalg.eigh(ggn)
+    eigvals_, eigvecs_ = jnp.linalg.eigh(ggn)
     eps = jnp.finfo(ggn.dtype).eps
-    tol = eps * (_eigvals.max() ** 0.5) * _eigvals.shape[0]
-    eigvals = _eigvals[_eigvals > tol]
-    eigvecs = _eigvecs[:, _eigvals > tol]
+    tol = eps * (eigvals_.max() ** 0.5) * eigvals_.shape[0]
+    eigvals = eigvals_[eigvals_ > tol]
+    eigvecs = eigvecs_[:, eigvals_ > tol]
     eigvals = jnp.flip(eigvals, axis=0)
     eigvecs = jnp.flip(eigvecs, axis=1)
 
@@ -32,7 +32,7 @@ def _compute_curvature_fn(
 
     i = 0
     post_var = jnp.zeros((prior_var.shape[0],))
-    prior_var_sum = jnp.sum(prior_var)
+    jnp.sum(prior_var)
     cov_sqrt = []
     _, unflatten = create_pytree_flattener(params)
     while jnp.all(post_var < prior_var) and i < eigvals.shape[0]:
@@ -41,9 +41,7 @@ def _compute_curvature_fn(
         post_var += jnp.concatenate(
             [jax.jit(jvp)(x_c, lr_fac_i) ** 2 for x_c in data["test_inputs"]], axis=0
         )
-        print(f"{i} - post_tr={post_var.sum()} - prior_tr={prior_var_sum}")
         i += 1
 
     truncation_idx = i if i == eigvals.shape[0] else i - 1
-    print(f"Truncation index: {truncation_idx}")
     return jnp.stack(cov_sqrt[:truncation_idx], axis=-1)

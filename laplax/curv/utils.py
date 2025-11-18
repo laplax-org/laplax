@@ -310,7 +310,7 @@ def compute_posterior_truncation_index(
 
     init_carry = (jnp.array(0.0, prior_var_sum.dtype), jnp.array(-1, jnp.int64))
     indices = jnp.arange(cov_sqrt.shape[1])
-    (running_sum, truncation_idx), _ = jax.lax.scan(scan_fn, init_carry, indices)
+    (_running_sum, truncation_idx), _ = jax.lax.scan(scan_fn, init_carry, indices)
 
     truncation_idx = jax.lax.cond(
         truncation_idx == -1,
