@@ -161,6 +161,7 @@ def adam(
     an objective function. The optimization is performed in log-space for numerical stability.
     The function includes early stopping mechanisms based on gradient tolerance and patience
     for consecutive loss increases.
+
     Args:
         prior_prec_interval: An array of prior precision values to search.
         objective: A callable objective function that takes `PriorArguments` as input
@@ -365,6 +366,7 @@ def stein_variational_gradient_descent(
             - bounds: tuple[float, float] for log space bounds
             - clip_grad: float for gradient clipping
             - bandwidth: float for kernel bandwidth (-1 for median heuristic)
+
     Returns:
         The prior precision value that minimizes the objective function.
     """
@@ -712,7 +714,7 @@ def optimize_with_adam(
         except Exception as error:  # noqa: BLE001
             logger.warning(f"Caught an exception in validate {error}")
             loss = jnp.inf
-            grad = {k: jnp.array(0.0, dtype=params.dtype) for k in obj_args.keys()}
+            grad = {k: jnp.array(0.0, dtype=params.dtype) for k in obj_args}
 
         if jnp.isnan(loss):
             logger.info("Caught nan, setting result to inf.")

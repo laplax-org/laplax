@@ -1,10 +1,10 @@
 """All types defined in one place."""
 
-from collections.abc import Callable, Iterable, Mapping  # noqa: F401
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 import jax
-from jaxtyping import Array, Float, Int, Num, PRNGKeyArray, PyTree  # noqa: F401
+from jaxtyping import Array, Float, Int, Num, PRNGKeyArray, PyTree
 
 from laplax.enums import CurvApprox
 

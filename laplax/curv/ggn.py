@@ -2,7 +2,6 @@
 
 """Generalized Gauss-Newton matrix-vector product and loss hessian."""
 
-import math
 from collections.abc import Callable
 from functools import partial
 
@@ -218,7 +217,11 @@ def _jmp(
     u_rank_major = jax.tree.map(lambda leaf: jnp.moveaxis(leaf, -1, 0), u)
 
     def jmp_single_x(x_c: InputArray) -> PredArray:
-        """J(x_c) U_M for one context point."""
+        """J(x_c) U_M for one context point.
+
+        Returns:
+            Jacobian-matrix product for a single context point.
+        """
 
         def jvp_single_rank(u_single: Params) -> PredArray:
             _, tang = jax.jvp(
@@ -262,7 +265,11 @@ def create_jmp(
     *,
     vmap_over_data: bool,
 ) -> Callable[[Params, InputArray, Params], PredArray]:
-    """Create a JVP-based Jacobian-matrix product specialized to `model_fn`."""
+    """Create a JVP-based Jacobian-matrix product specialized to `model_fn`.
+
+    Returns:
+        Function that computes Jacobian-matrix products for the given model.
+    """
     jmp_impl = _jmp_fast if vmap_over_data else _jmp
     return partial(jmp_impl, model_fn=model_fn)
 
@@ -301,6 +308,7 @@ def create_ggn_mv_without_data(
         factor: Scaling factor for the GGN computation.
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         loss_hessian_mv: The loss Hessian matrix-vector product.
+        fsp: Whether to use FSP (Function-Space Posterior) mode. Defaults to False.
 
     Returns:
         A function that takes a vector and a batch of data, and computes the GGN
@@ -410,6 +418,7 @@ def create_ggn_mv(
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         loss_hessian_mv: The loss Hessian matrix-vector product. If not provided, it is
             computed using the `loss_fn`.
+        fsp: Whether to use FSP (Function-Space Posterior) mode. Defaults to False.
 
     Returns:
         A function that takes a vector and computes the GGN matrix-vector product for

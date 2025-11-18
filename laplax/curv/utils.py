@@ -14,7 +14,6 @@ from laplax.types import (
     Array,
     Float,
     InputArray,
-    Kwargs,
     Layout,
     ModelFn,
     Num,
@@ -213,6 +212,7 @@ def create_model_jvp(
         params: Model parameters.
         v: Vector to multiply with the Jacobian.
         model_fn: The model function.
+
     Returns:
         The Jacobian-vector product.
     """
@@ -236,6 +236,7 @@ def create_model_vjp(
         params: Model parameters.
         v: Vector to multiply with the Jacobian.
         model_fn: The model function.
+
     Returns:
         The vector-Jacobian product.
     """

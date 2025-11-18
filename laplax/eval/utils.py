@@ -355,7 +355,7 @@ def evaluate_metrics_on_generator(
     # Vmap over batch dimension, if necessary.
     if vmap_over_data:
         evaluate_data = jax.vmap(evaluate_data)
-    if not kwargs.get("debug", False):
+    if not kwargs.get("debug"):
         evaluate_data = jax.jit(evaluate_data)
 
     # Evaluate metrics by iterating over the generator

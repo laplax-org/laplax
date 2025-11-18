@@ -1,8 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from laplax.enums import LossFn
-from laplax.types import Callable, Data, Float, ModelFn, Params, PredArray
+from laplax.types import Data, ModelFn, Params, PredArray
 from laplax.util.flatten import create_pytree_flattener
 
 

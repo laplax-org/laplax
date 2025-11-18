@@ -20,7 +20,6 @@ from laplax.types import (
     Callable,
     InputArray,
     Int,
-    Kwargs,
     ModelFn,
     Params,
     PredArray,
@@ -30,7 +29,6 @@ from laplax.util.flatten import (
     create_partial_pytree_flattener,
     create_pytree_flattener,
 )
-from laplax.util.mv import kronecker_product_factors
 
 KernelStructure = CovarianceStructure
 
@@ -46,7 +44,7 @@ def _truncated_left_svd(M_flat: jnp.ndarray):
     For speed, uses an eigen decomposition of the smaller Gram matrix
     and reconstructs the left singular vectors when advantageous.
 
-    Returns
+    Returns:
     -------
     tuple (U, s)
         U: left singular vectors with only columns above tolerance
@@ -70,19 +68,18 @@ def _truncated_left_svd(M_flat: jnp.ndarray):
         U = M_flat @ V
         U = U / s  # column-wise divide via broadcasting
         return U, s
-    else:
-        gram = M_flat @ M_flat.T  # (d, d)
-        eigvals, U = jnp.linalg.eigh(gram)
-        order = jnp.argsort(eigvals)[::-1]
-        eigvals = eigvals[order]
-        U = U[:, order]
-        s_all = jnp.sqrt(jnp.clip(eigvals, 0.0))
-        mask = s_all > tol
-        s = s_all[mask]
-        if s.size == 0:
-            return jnp.zeros((d, 0), dtype=M_flat.dtype), s
-        U = U[:, : s.size]
-        return U, s
+    gram = M_flat @ M_flat.T  # (d, d)
+    eigvals, U = jnp.linalg.eigh(gram)
+    order = jnp.argsort(eigvals)[::-1]
+    eigvals = eigvals[order]
+    U = U[:, order]
+    s_all = jnp.sqrt(jnp.clip(eigvals, 0.0))
+    mask = s_all > tol
+    s = s_all[mask]
+    if s.size == 0:
+        return jnp.zeros((d, 0), dtype=M_flat.dtype), s
+    U = U[:, : s.size]
+    return U, s
 
 
 def _compute_fsp_ggn_gram(
@@ -195,7 +192,6 @@ def _accumulate_M_over_kron_streaming(
     For each column j in 0..rank-1, compute vs = reshape(mv_kron(e_j), out_shape),
     then sum VJPs over function chunks. Stacks results across the last axis.
     """
-
     n_functions = int(x_context.shape[0])
     n_chunks_eff = int(min(max(1, n_chunks), n_functions))
     while n_functions % n_chunks_eff != 0 and n_chunks_eff > 1:
@@ -243,7 +239,7 @@ def _model_jvp(
     vs : Params
         Tangent vectors (pytree matching params structure)
 
-    Returns
+    Returns:
     -------
     jnp.array with shape `(B,) + output_shape`
         Batch of Jacobian-vector products
@@ -286,7 +282,7 @@ def _M_batch(model_fn: ModelFn, params: Params, xs: InputArray, L: PredArray):
     L : PredArray
         Matrix to multiply with Jacobian
 
-    Returns
+    Returns:
     -------
     Pytree
         Batched matrix-Jacobian product
@@ -411,7 +407,7 @@ def _lanczos_init(model_fn: ModelFn, params: Params, xs: InputArray, num_chunks:
     num_chunks : int
         Number of chunks for processing
 
-    Returns
+    Returns:
     -------
     tuple
         (initial_vectors_function, initial_vectors_spatial)
@@ -485,7 +481,7 @@ def _lanczos_kronecker_structure(
     max_iters : list[int] | None
         Maximum iterations for each dimension
 
-    Returns
+    Returns:
     -------
     list
         List of Lanczos inverse sqrt factors for each dimension
@@ -523,7 +519,7 @@ def _lanczos_none_structure(
     max_iter : int | None
         Maximum iterations
 
-    Returns
+    Returns:
     -------
     Array
         Lanczos inverse sqrt factor
@@ -578,7 +574,7 @@ def create_fsp_posterior_kronecker(
     spatial_max_iters : list[int] | None
         Maximum Lanczos iterations for each spatial dimension
 
-    Returns
+    Returns:
     -------
     Posterior
         FSP posterior approximation
@@ -741,7 +737,7 @@ def create_fsp_posterior_none(
     max_iter : int | None
         Maximum Lanczos iterations
 
-    Returns
+    Returns:
     -------
     Posterior
         FSP posterior approximation
@@ -849,7 +845,7 @@ def create_fsp_posterior_none(
     posterior = Posterior(
         state=posterior_state,
         cov_mv=lambda state: lambda x: unflatten_params(
-            (state["scale_sqrt"] @ (state["scale_sqrt"].T @ flatten_params(x)))
+            state["scale_sqrt"] @ (state["scale_sqrt"].T @ flatten_params(x))
         ),
         scale_mv=lambda state: lambda x: unflatten_params(state["scale_sqrt"] @ x),
         rank=posterior_state["scale_sqrt"].shape[-1],
@@ -906,12 +902,12 @@ def create_fsp_posterior(
     max_iter : int | None
         Max iterations for full Lanczos
 
-    Returns
+    Returns:
     -------
     Posterior
         FSP posterior approximation
 
-    Raises
+    Raises:
     ------
     ValueError
         If required arguments for the specified kernel structure are missing
@@ -942,7 +938,7 @@ def create_fsp_posterior(
             **kwargs,
         )
 
-    elif (
+    if (
         kernel_structure == CovarianceStructure.NONE or str(kernel_structure) == "none"
     ):
         if kernel is None:
@@ -965,9 +961,8 @@ def create_fsp_posterior(
             **kwargs,
         )
 
-    else:
-        msg = f"Unknown kernel structure: {kernel_structure}"
-        raise ValueError(msg)
+    msg = f"Unknown kernel structure: {kernel_structure}"
+    raise ValueError(msg)
 
 
 # Public mapping similar to CURVATURE_PRECISION_METHODS

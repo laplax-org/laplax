@@ -619,11 +619,11 @@ def cov_low_rank_approximation(results: dict, aux: dict, **kwargs: Kwargs):
     square-rooted so that `S` represents scale singular values (matching the
     convention used in low-rank pushforward), i.e., Σ ≈ U diag(S²) Uᵀ.
     """
-    cov_pred = results.get("pred_cov", None)
+    cov_pred = results.get("pred_cov")
     if cov_pred is None:
         return results, aux
 
-    if kwargs.get("fsp", False):
+    if kwargs.get("fsp"):
         results["pred_cov_low_rank_terms"] = aux["pred_cov_low_rank_terms"]
         return results, aux
 

@@ -1,5 +1,4 @@
-from collections.abc import Callable
-from typing import Sequence
+from collections.abc import Callable, Sequence
 
 import jax
 import jax.numpy as jnp
@@ -15,7 +14,11 @@ from laplax.types import Array, Int
 def _load_all_data_from_dataloader(
     dataloader: DataLoader,
 ) -> tuple[Array, Array]:
-    """Load all batches from a DataLoader into JAX arrays."""
+    """Load all batches from a DataLoader into JAX arrays.
+
+    Returns:
+        Tuple of (all_x, all_y) JAX arrays containing concatenated batches.
+    """
     x_list = []
     y_list = []
 
@@ -34,6 +37,9 @@ def _flatten_spatial_dims(data: Array) -> tuple[Array, tuple]:
 
     Avoids using jax.numpy on Python tuples (which can carry tracers in tests)
     by computing the product with numpy to obtain a plain integer.
+
+    Returns:
+        Tuple of (flattened_data, original_shape).
     """
     original_shape = data.shape
     batch_size = int(original_shape[0])
@@ -54,6 +60,9 @@ def _pca_transform_jax(
 
     - Centers and scales each original feature to unit variance prior to PCA.
     - Uses sklearn's PCA which centers again internally; pre-scaling is the key.
+
+    Returns:
+        Tuple of (transformed_data, fitted_pca_model).
     """
     y_np = np.array(y_data)
     # Standardize features to zero mean, unit variance
@@ -78,10 +87,18 @@ def _generate_low_discrepancy_sequence(
     sequence_type: str = "sobol",
     seed: Int | None = None,
 ) -> np.ndarray:
-    """Generate low-discrepancy quasi-random sequences."""
+    """Generate low-discrepancy quasi-random sequences.
+
+    Returns:
+        Array of shape (n_points, n_dims) containing quasi-random points.
+
+    Raises:
+        ValueError: If sequence_type is not 'sobol', 'halton', or 'latin_hypercube'.
+    """
     if sequence_type.lower() == "sobol":
         sampler = qmc.Sobol(d=n_dims, scramble=True, seed=seed)
-        # SciPy's Sobol supports base-2 samples; caller should choose n_points accordingly.
+        # SciPy's Sobol supports base-2 samples; caller should choose
+        # n_points accordingly.
         points = sampler.random_base2(n_points)
     elif sequence_type.lower() == "halton":
         sampler = qmc.Halton(d=n_dims, scramble=True, seed=seed)
@@ -102,7 +119,11 @@ def _generate_low_discrepancy_sequence(
 def _normalize_to_unit_cube(
     data: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Normalize data to the unit hypercube [0, 1]^d."""
+    """Normalize data to the unit hypercube [0, 1]^d.
+
+    Returns:
+        Tuple of (normalized_data, data_min, data_max).
+    """
     data_min = data.min(axis=0)
     data_max = data.max(axis=0)
     normalized = (data - data_min) / (data_max - data_min + 1e-10)
@@ -113,7 +134,11 @@ def _find_nearest_neighbors(
     query_points: np.ndarray,
     data_points: np.ndarray,
 ) -> np.ndarray:
-    """Find nearest neighbors for each query point in data points."""
+    """Find nearest neighbors for each query point in data points.
+
+    Returns:
+        Array of indices of nearest neighbors in data_points.
+    """
     nn = NearestNeighbors(n_neighbors=1, algorithm="auto")
     nn.fit(data_points)
 
@@ -128,12 +153,17 @@ def _pca_context_points(
     n_pca_components: Int | None = None,
     pca_variance_threshold: float = 0.95,
     seed: Int | None = None,
+    *,
     return_pca: bool = False,
 ) -> tuple[Array, Array] | tuple[Array, Array, PCA]:
-    """Select context points using PCA-based low-discrepancy sampling."""
+    """Select context points using PCA-based low-discrepancy sampling.
+
+    Returns:
+        Tuple of (context_x, context_y) or (context_x, context_y, pca) if
+        return_pca=True.
+    """
     all_x, all_y = _load_all_data_from_dataloader(dataloader)
     y_flat, _ = _flatten_spatial_dims(all_y)
-    x_flat, _ = _flatten_spatial_dims(all_x)
 
     y_pca, pca = _pca_transform_jax(
         y_flat,
@@ -192,7 +222,11 @@ def _sobol_context_points(
     pca_variance_threshold: float = 0.95,
     seed: Int | None = None,
 ) -> tuple[Array, Array]:
-    """Sobol-based PCA context point selection."""
+    """Sobol-based PCA context point selection.
+
+    Returns:
+        Tuple of (context_x, context_y).
+    """
     return _pca_context_points(
         dataloader=dataloader,
         n_context_points=n_context_points,
@@ -210,7 +244,11 @@ def _latin_hypercube_context_points(
     pca_variance_threshold: float = 0.95,
     seed: Int | None = None,
 ) -> tuple[Array, Array]:
-    """Latin Hypercube-based PCA context point selection."""
+    """Latin Hypercube-based PCA context point selection.
+
+    Returns:
+        Tuple of (context_x, context_y).
+    """
     return _pca_context_points(
         dataloader=dataloader,
         n_context_points=n_context_points,
@@ -228,7 +266,11 @@ def _halton_context_points(
     pca_variance_threshold: float = 0.95,
     seed: Int | None = None,
 ) -> tuple[Array, Array]:
-    """Halton-based PCA context point selection."""
+    """Halton-based PCA context point selection.
+
+    Returns:
+        Tuple of (context_x, context_y).
+    """
     return _pca_context_points(
         dataloader=dataloader,
         n_context_points=n_context_points,
@@ -250,6 +292,9 @@ def _random_context_points(
 
     Extra PCA-related arguments are accepted for API compatibility with
     other context selection functions but are ignored.
+
+    Returns:
+        Tuple of (context_x, context_y).
     """
     del n_pca_components, pca_variance_threshold
 
@@ -290,7 +335,14 @@ CONTEXT_SELECTION_METHODS: dict[str, ContextSelectionFn] = {
 def _make_grid_from_data_shape(
     data_shape, min_domain: float = 0.0, max_domain: float = 2 * np.pi
 ) -> tuple[jnp.ndarray, float]:
-    """Construct a 1D/2D/3D spatial grid from a data shape."""
+    """Construct a 1D/2D/3D spatial grid from a data shape.
+
+    Returns:
+        Tuple of (grid, dx) where grid is the spatial grid and dx is the spacing.
+
+    Raises:
+        ValueError: If number of spatial dimensions is not 1, 2, or 3.
+    """
     spatial_dims = tuple(dim for dim in data_shape[1:] if dim > 1)
 
     if len(spatial_dims) > 3:
@@ -339,7 +391,11 @@ def _make_grid_from_loader(
     min_domain: float = 0.0,
     max_domain: float = 2 * np.pi,
 ) -> tuple[jnp.ndarray, float]:
-    """Infer grid from a single batch of the dataloader."""
+    """Infer grid from a single batch of the dataloader.
+
+    Returns:
+        Tuple of (grid, dx) where grid is the spatial grid and dx is the spacing.
+    """
     _, y = next(iter(dataloader))
     data_shape = y.shape
     return _make_grid_from_data_shape(
@@ -352,7 +408,14 @@ def _apply_grid_stride(
     context_x: Array,
     grid_stride: Int | Sequence[int] | None,
 ) -> tuple[jnp.ndarray, Array]:
-    """Apply spatial striding to grid and corresponding context inputs."""
+    """Apply spatial striding to grid and corresponding context inputs.
+
+    Returns:
+        Tuple of (strided_grid, strided_context_x).
+
+    Raises:
+        ValueError: If grid dimension is not supported for striding.
+    """
     if grid_stride is None or grid_stride == 1:
         return grid, context_x
 
@@ -404,7 +467,14 @@ def select_context_points(
     time_keep: Int | None = None,
     grid_stride: Int | None = None,
 ) -> tuple[Array, Array, Array | None]:
-    """Top-level context point selection API."""
+    """Top-level context point selection API.
+
+    Returns:
+        Tuple of (context_x, context_y, grid).
+
+    Raises:
+        ValueError: If context_selection method is unknown.
+    """
     # Handle combined strategies (e.g., "random+sobol", "sobol+latin_hypercube")
     if "+" in context_selection:
         strategies = [s.strip() for s in context_selection.split("+")]
