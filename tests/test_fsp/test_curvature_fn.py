@@ -13,7 +13,7 @@ def _compute_curvature_fn(
     prior_var: PredArray,
     u: PredArray,
 ):
-    """Compute the curvature function of FSP Laplace.
+    r"""Compute the curvature function of FSP Laplace.
 
     Can be used to test the compute_curvature_fn in fsp.
 
@@ -27,7 +27,7 @@ def _compute_curvature_fn(
 
     Returns:
         jax.Array: Curvature factors stacked along the last axis.
-    """  # noqa: D205
+    """
     eigvals_, eigvecs_ = jnp.linalg.eigh(ggn)
     eps = jnp.finfo(ggn.dtype).eps
     tol = eps * (eigvals_.max() ** 0.5) * eigvals_.shape[0]
