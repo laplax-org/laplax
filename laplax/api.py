@@ -576,6 +576,7 @@ def GGN(
         loss_fn: Loss function to use.
         factor: Scaling factor for GGN.
         vmap_over_data: Whether model expects batch dimension.
+        fsp: Whether to use FSP (Function-Space Posterior) mode.
         verbose_logging: Whether to enable verbose logging.
         transform: Transform to apply to data.
 
