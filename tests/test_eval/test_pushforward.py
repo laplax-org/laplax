@@ -7,7 +7,12 @@ import pytest_cases
 from laplax.curv.cov import create_posterior_fn
 from laplax.curv.ggn import create_ggn_mv
 from laplax.enums import CurvApprox
-from laplax.eval.pushforward import set_lin_pushforward, set_nonlin_pushforward
+from laplax.eval.pushforward import (
+    lin_pred_var,
+    nonlin_pred_var,
+    set_lin_pushforward,
+    set_nonlin_pushforward,
+)
 
 from .cases.regression import case_regression
 
@@ -63,6 +68,20 @@ def test_nonlin_pushforward(curv_op, task):
     assert (5, task.out_channels) == results["samples"].shape[1:]  # Check shape
     assert jnp.all(results["pred_std"] >= 0)
     assert jnp.allclose(pred, results["map"])
+    assert results["pred_var"].shape == results["pred_mean"].shape
+
+    if results["pred_cov"].ndim >= results["pred_mean"].ndim + 1:
+        diag = jnp.diagonal(results["pred_cov"], axis1=-2, axis2=-1)
+        expected_var = diag.reshape(results["pred_mean"].shape)
+        assert jnp.allclose(results["pred_var"], expected_var)
+
+    single_results = {"pred_mean": results["pred_mean"][0]}
+    aux_no_cov = {"pred_ensemble": results["samples"][0]}
+    single_results, _ = nonlin_pred_var(single_results, aux_no_cov)
+    assert single_results["pred_var"].shape == results["pred_mean"][0].shape
+    assert jnp.allclose(
+        single_results["pred_var"], jnp.var(results["samples"][0], axis=0)
+    )
 
 
 @pytest_cases.parametrize(
@@ -114,3 +133,14 @@ def test_lin_pushforward(curv_op, task):
     ]  # (batch, samples, out)
     jnp.allclose(pred, results["map"])
     jnp.allclose(pred, results["pred_mean"], rtol=1e-2)
+    assert results["pred_var"].shape == results["pred_mean"].shape
+
+    if results["pred_cov"].ndim >= results["pred_mean"].ndim + 1:
+        diag = jnp.diagonal(results["pred_cov"], axis1=-2, axis2=-1)
+        expected_var = diag.reshape(results["pred_mean"].shape)
+        assert jnp.allclose(results["pred_var"], expected_var)
+
+    toy_map = jnp.arange(6.0, dtype=jnp.float32).reshape(2, 3)
+    toy_results, _ = lin_pred_var({"map": toy_map}, {"cov_mv": lambda vec: vec})
+    assert toy_results["pred_var"].shape == toy_map.shape
+    assert jnp.allclose(toy_results["pred_var"], jnp.ones_like(toy_map))
