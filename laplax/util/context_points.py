@@ -6,9 +6,8 @@ import numpy as np
 from scipy.stats import qmc
 from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
-from torch.utils.data import DataLoader
 
-from laplax.types import Array, Int
+from laplax.types import Array, DataLoader, Int
 
 
 def _load_all_data_from_dataloader(

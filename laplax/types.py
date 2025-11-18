@@ -31,6 +31,7 @@ Data = Mapping[str, Num[Array, "..."]]  # {"input": ..., "target": ...}
 Layout = PyTree | int
 PriorArguments = Mapping[str, Array | float]
 PosteriorState = PyTree[Num[Array, "..."]]
+DataLoader = Iterable[Data]
 
 # Pushforward types
 DistState = dict[str, ...]  # type: ignore  # noqa: PGH003
