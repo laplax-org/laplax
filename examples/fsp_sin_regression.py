@@ -5,7 +5,6 @@ for regression on a truncated sine function, showing how FSP captures
 uncertainty in extrapolation regions.
 """
 
-
 import operator
 
 import jax
@@ -372,9 +371,7 @@ def main():
         delta_params = posterior.scale_mv(posterior.state)(z)
         sample_params = jax.tree.map(operator.add, trained_params, delta_params)
 
-        sample_preds = jax.vmap(
-            lambda x, p=sample_params: model_fn(x, p)
-        )(x_test)
+        sample_preds = jax.vmap(lambda x, p=sample_params: model_fn(x, p))(x_test)
         samples.append(sample_preds)
 
     samples = jnp.stack(samples)

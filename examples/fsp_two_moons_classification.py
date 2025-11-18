@@ -190,7 +190,6 @@ def create_kernel_matrix(x_context, lengthscale=1.0, variance=1.0):
 
 
 def main():
-
     # ------------------------------------------------------------------
     # 1) Data
     # ------------------------------------------------------------------
@@ -371,9 +370,7 @@ def main():
         delta_params_flat = standard_posterior.scale_mv(standard_posterior.state)(z)
         delta_params = unflatten_fn(delta_params_flat)
         sample_params = jax.tree.map(operator.add, trained_params, delta_params)
-        sample_logits = jax.vmap(
-            lambda x, p=sample_params: model_fn(x, p)
-        )(grid_jax)
+        sample_logits = jax.vmap(lambda x, p=sample_params: model_fn(x, p))(grid_jax)
         standard_samples.append(jax.nn.sigmoid(sample_logits))
     standard_samples = jnp.stack(standard_samples)
     standard_std = jnp.std(standard_samples, axis=0)

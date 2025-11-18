@@ -268,6 +268,7 @@ def _model_jvp(
     )(xs)
 
 
+@partial(jax.jit, static_argnames=("model_fn",))
 def _model_vjp(
     model_fn: ModelFn,
     params: Params,
