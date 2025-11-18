@@ -18,7 +18,7 @@ if TYPE_CHECKING:  # pragma: no cover - import for type checkers only
 
 def __getattr__(name: str):  # pragma: no cover - trivial passthrough
     if name in {"calibration", "evaluation", "laplace"}:
-        _api = importlib.import_module("laplax.api")  # noqa: RUF052
-        return getattr(_api, name)
+        api_module = importlib.import_module("laplax.api")
+        return getattr(api_module, name)
     msg = f"module 'laplax' has no attribute {name!r}"
     raise AttributeError(msg)

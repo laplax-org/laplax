@@ -1492,6 +1492,11 @@ notebooks = [
     { name = "wandb" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "ruff" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "coveralls", marker = "extra == 'dev'" },
@@ -1534,6 +1539,9 @@ requires-dist = [
     { name = "wandb", marker = "extra == 'notebooks'" },
 ]
 provides-extras = ["dev", "notebooks", "docs"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "ruff", specifier = ">=0.11.13" }]
 
 [[package]]
 name = "latexcodec"
