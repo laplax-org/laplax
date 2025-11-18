@@ -1482,7 +1482,9 @@ docs = [
 ]
 notebooks = [
     { name = "flax" },
+    { name = "ipykernel" },
     { name = "ipywidgets" },
+    { name = "matplotlib" },
     { name = "optax" },
     { name = "pandas" },
     { name = "skerch" },
@@ -1499,6 +1501,7 @@ requires-dist = [
     { name = "equinox", marker = "extra == 'dev'" },
     { name = "flax", marker = "extra == 'dev'" },
     { name = "flax", marker = "extra == 'notebooks'" },
+    { name = "ipykernel", marker = "extra == 'notebooks'" },
     { name = "ipywidgets", marker = "extra == 'notebooks'" },
     { name = "jax" },
     { name = "jaxtyping" },
@@ -1507,6 +1510,7 @@ requires-dist = [
     { name = "laplace-torch", marker = "extra == 'dev'" },
     { name = "loguru" },
     { name = "matplotlib", marker = "extra == 'dev'" },
+    { name = "matplotlib", marker = "extra == 'notebooks'" },
     { name = "mkdocs", marker = "extra == 'docs'" },
     { name = "mkdocs-autorefs", marker = "extra == 'docs'" },
     { name = "mkdocs-bibtex", marker = "extra == 'docs'" },
