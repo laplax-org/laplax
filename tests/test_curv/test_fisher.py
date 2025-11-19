@@ -55,3 +55,61 @@ def test_emp_fisher_on_quadratic_fn():
     )
     assert jnp.allclose(fisher_laplax, fisher_manual)
 
+
+def test_emp_fisher_on_quadratic_fn_2():
+    def fn(input, params):
+        return jnp.array([
+            params["a"][0] * input**2 + params["b"][0] * input,
+            params["a"][1] * input + params["b"][1]
+            ])
+
+    data = {
+        "input": jnp.array([0.3,0.7,0.4,0.5]).reshape(4, 1),
+        "target": jnp.array([0.3,0.7,0.4,0.5,0.3,0.7,0.4,0.5]).reshape(4, 2),
+    }
+
+    # TODO(Luis Gindorf): Find out why test fails for different parameters
+    best_params = {"a": jnp.array([1.0,2.0]), "b": jnp.array([-0.5,-1])}
+
+    fisher_mv = create_empirical_fisher_mv(
+        model_fn=fn,
+        params=best_params,
+        data=data,
+        loss_fn=LossFn.MSE,
+        vmap_over_data=True,
+    )
+
+
+    # Construct full matrix via mvp with one-hot vectors as PyTrees
+    fisher_row_1 = full_flatten(fisher_mv({"a": jnp.array([1.0,0.0]), "b": jnp.array([0.0,0.0])}))
+    fisher_row_2 = full_flatten(fisher_mv({"a": jnp.array([0.0,1.0]), "b": jnp.array([0.0,0.0])}))
+    fisher_row_3 = full_flatten(fisher_mv({"a": jnp.array([0.0,0.0]), "b": jnp.array([1.0,0.0])}))
+    fisher_row_4 = full_flatten(fisher_mv({"a": jnp.array([0.0,0.0]), "b": jnp.array([0.0,1.0])}))
+
+    fisher_laplax = jnp.stack((fisher_row_1, fisher_row_2, fisher_row_3, fisher_row_4))
+
+    def df_dparams(input, params):
+        del params
+        df_da0 = input.item() ** 2
+        df_db0 = input.item()
+        df_da1 = input.item()
+        df_db1 = 1
+        return jnp.array([[df_da0, df_db0, df_da1, df_db1]])
+
+    def dc_df(f, y):  # For MSE Loss
+        return jnp.atleast_2d(2 * (f - y))
+
+    jacs = [df_dparams(x, best_params) for x in data["input"]]
+    grads = [
+        dc_df(fn(x, best_params), y)
+        for x, y in zip(data["input"], data["target"], strict=True)
+    ]
+
+    fisher_manual = jnp.sum(
+        jnp.array([
+            jac.T @ grad @ grad.T @ jac for jac, grad in zip(jacs, grads, strict=True)
+        ]),
+        axis=0,
+    )
+
+    assert jnp.allclose(fisher_laplax, fisher_manual)
