@@ -204,3 +204,24 @@ def create_MC_fisher_mv_without_data(
     Note:
         The function assumes as a default that the data has a batch dimension.
     """
+
+    def mc_fisher_mv(vec, data):
+
+        def fwd(p):
+            # Step 1: Single jvp for entire batch, if vmap_over_data is True
+            if vmap_over_data:
+                return jax.vmap(lambda x: model_fn(input=x, params=p))(data["input"])
+            return model_fn(input=data["input"], params=p)
+        
+        _, jvp = jax.linearize(fwd, params)
+        vjp = jax.linear_transpose(jvp, vec)
+
+        S_mv = would_be_grad_mv(loss_fn, mc_samples, data)
+        St_mv = jax.linear_transpose(S_mv, jnp.zeros(mc_samples))
+        
+        StJv = St_mv(Jv)[0]
+        SStJv = S_mv(StJv)
+        JtSStJv = vjp(SStJv)[0]
+        return mul(factor, JtSStJv)
+
+    return mc_fisher_mv
