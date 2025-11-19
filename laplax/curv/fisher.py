@@ -11,24 +11,24 @@ from laplax.types import (
     Data,
     Float,
     Int,
+    KeyType,
     ModelFn,
     Params,
-    KeyType,
 )
-from laplax.util.tree import mul,mean
+from laplax.util.tree import mean, mul
+
 
 def transpose(linop, example_input):
-    # Simple wrapper around jax.linear_transpose to 
-    # directly return transpose of linop with single argument 
+    # Simple wrapper around jax.linear_transpose to
+    # directly return transpose of linop with single argument
     t = jax.linear_transpose(linop, example_input)
     return lambda v: t(v)[0]
 
 
 def fisher_structure_calculation(jvp, grads_vp, vec, M=1):
-    r"""
-    Nests matrix vector product calls as needed for fisher calculation
-    
-    Calculates 
+    r"""Nests matrix vector product calls as needed for fisher calculation.
+
+    Calculates
     $$
     \text{jvp}^\top (\text{grads_vp}(\text{grads_vp}^\top(\text{jvp}(\text{vec}))))
     $$
@@ -38,10 +38,12 @@ def fisher_structure_calculation(jvp, grads_vp, vec, M=1):
         grads_vp: A callable mapping a vector of shape ('M',) to  vector of shape (O,)
         vec: A PyTree that can be consumed by jvp
         M: Number of gradients provided
-    """
 
+    Returns:
+        The unscaled fisher matrix vector poduct for one datum
+    """
     vjp = transpose(jvp, vec)
-    v_grads_p = transpose(grads_vp, jnp.zeros((M,1)))
+    v_grads_p = transpose(grads_vp, jnp.zeros((M, 1)))
 
     Jv = jvp(vec)
     GtJv = v_grads_p(Jv)
@@ -92,32 +94,29 @@ def create_empirical_fisher_mv_without_data(
     Note:
         The function assumes as a default that the data has a batch dimension.
     """
-
     loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, vmap_over_data=False)
 
-
-
-    def emp_fisher_single_datum(x,y, vec):
-        # Forward pass
-        f_evaluated = model_fn(input=x, params=params).squeeze()
-        
-        # Construct jvp of forward pass
-        # atleast_2d ensures jvp has signature expected by fisher calculation
-        model_as_fn_of_params = lambda p: jnp.atleast_2d(model_fn(input=x, params=p))
-        jvp = jax.linearize(model_as_fn_of_params, params)[1]
-        
-        # Construct gradient mv
-        grad = loss_grad_fn(f_evaluated, y)[:,None]
-        grad_mv = lambda v: grad @ v
-
-        fisher = fisher_structure_calculation(jvp, grad_mv, vec)
-        return mul(factor, fisher)
-
     def empirical_fisher_mv(vec, data):
+        def emp_fisher_single_datum(datum):
+            x, y = datum["input"], datum["target"]
+            # Forward pass
+            f_evaluated = model_fn(input=x, params=params).squeeze()
+
+            # Construct jvp of forward pass
+            # atleast_2d ensures jvp has signature expected by fisher calculation
+            jvp = jax.linearize(lambda p: jnp.atleast_2d(model_fn(x, p)), params)[1]
+
+            # Construct gradient mv
+            grad = loss_grad_fn(f_evaluated, y)[:, None]
+
+            fisher = fisher_structure_calculation(jvp, lambda v: grad @ v, vec)
+            return mul(factor, fisher)
+
         if vmap_over_data:
-            return mean(jax.vmap(lambda datum: emp_fisher_single_datum(datum["input"],datum["target"], vec))(data), axis=0)
-        return emp_fisher_single_datum(data["input"], data["target"], vec)
-    
+            vmap = jax.vmap(emp_fisher_single_datum)(data)
+            return mean(vmap, axis=0)
+        return emp_fisher_single_datum(data, vec)
+
     return empirical_fisher_mv
 
 
@@ -220,7 +219,7 @@ def create_MC_fisher_mv_without_data(
     #evaluated at data point $n$, $c(y,\hat{y})$ is the
     #loss function, and $v$ is the vector.
     #$\tilde{y}_{n,m}$ is the m-th Monte Carlo sample of the label under the liklihood
-    # induced by the loss function: $r(y|f_n) = \exp(-c(y,\hat{y}=f_n))$ 
+    # induced by the loss function: $r(y|f_n) = \exp(-c(y,\hat{y}=f_n))$
     #at data point $n$.
     #The `factor` is a scaling factor that
     #is used to scale the Fisher matrix.
@@ -244,49 +243,42 @@ def create_MC_fisher_mv_without_data(
     Note:
         The function assumes as a default that the data has a batch dimension.
     """
-
-    loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, vmap_over_data=False)
-
-
-
-    def mc_fisher_single_datum(x,y, vec):
-        # Forward pass
-        f_evaluated = model_fn(input=x, params=params)
-        
-        # Construct jvp of forward pass
-        # atleast_2d ensures jvp has signature expected by fisher calculation
-        model_as_fn_of_params = lambda p: jnp.atleast_2d(model_fn(input=x, params=p))
-        jvp = jax.linearize(model_as_fn_of_params, params)[1]
-        
-        # Construct would-be-gradients mv
-        y_samples = sample_likelihood(loss_fn, f_evaluated, M, key)
-
-        #TODO: Is this (O,M) = loss_grad_fn( (O,1), (O,M) ) ?
-        grad = loss_grad_fn(f_evaluated, y_samples)
-        grad_mv = lambda v: grad @ v
-
-        fisher = fisher_structure_calculation(jvp, grad_mv, vec)
-        return mul(factor, fisher)
-
-
+    loss_grad_fn = fetch_loss_gradient_fn(loss_fn, None, vmap_over_data=False)
 
     def mc_fisher_mv(vec, data):
+        def mc_fisher_single_datum(datum):
+            x = datum["input"]  # actual y never used for MC Fisher
+            # Forward pass
+            f_evaluated = model_fn(input=x, params=params)
+
+            # Construct jvp of forward pass
+            # atleast_2d ensures jvp has signature expected by fisher calculation
+            jvp = jax.linearize(lambda p: jnp.atleast_2d(model_fn(x, p)), params)[1]
+
+            # Construct would-be-gradients mv
+            y_samples = sample_likelihood(loss_fn, f_evaluated, mc_samples, key)
+
+            # TODO @Luis: Is this (O,M) = loss_grad_fn( (O,1), (O,M) ) ?
+            grad = loss_grad_fn(f_evaluated, y_samples)
+
+            fisher = fisher_structure_calculation(jvp, lambda v: grad @ v, vec)
+            return mul(factor, fisher)
+
         if vmap_over_data:
-            return mean(jax.vmap(lambda datum: mc_fisher_single_datum(datum["input"],datum["target"], vec))(data), axis=0)
+            vmap = jax.vmap(mc_fisher_single_datum)(data)
+            return mean(vmap, axis=0)
         return mc_fisher_single_datum(data["input"], data["target"], vec)
-    
+
     return mc_fisher_mv
 
 
-def sample_likelihood(loss_fn, f_n, M, key):
+def sample_likelihood(loss_fn, f_n, mc_samples, key):
     # sample M values $\tilde{y} from e^{-loss_fn(y, f_n)}$
     if loss_fn is LossFn.MSE:
-        unit_samples =  jax.random.normal(key, shape=(f_n.shape[0], M))
-        return unit_samples + f_n[:,None]
+        unit_samples = jax.random.normal(key, shape=(f_n.shape[0], mc_samples))
+        return unit_samples + f_n[:, None]
 
     if loss_fn is LossFn.CROSS_ENTROPY:
-        return jax.random.categorical(key, f_n, shape=(1,M), replace=True)
-    else:
-        msg = f"Unsupported LossFn {loss_fn} to sample from."
-        raise ValueError(msg)
-
+        return jax.random.categorical(key, f_n, shape=(1, mc_samples), replace=True)
+    msg = f"Unsupported LossFn {loss_fn} to sample from."
+    raise ValueError(msg)

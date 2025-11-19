@@ -1,10 +1,9 @@
 import jax
 import jax.numpy as jnp
 
-from laplax.curv.fisher import create_empirical_fisher_mv
+from laplax.curv.fisher import create_empirical_fisher_mv, sample_likelihood
 from laplax.enums import LossFn
 from laplax.util.flatten import full_flatten
-from laplax.curv.fisher import sample_likelihood
 
 
 def test_emp_fisher_on_quadratic_fn():
@@ -66,15 +65,15 @@ def test_emp_fisher_on_quadratic_fn_2():
     def fn(input, params):
         return jnp.array([
             params["a"][0] * input**2 + params["b"][0] * input,
-            params["a"][1] * input + params["b"][1]
-            ])
+            params["a"][1] * input + params["b"][1],
+        ])
 
     data = {
-        "input": jnp.array([0.3,0.7,0.4]).reshape(3, 1),
-        "target": jnp.array([0.3,0.7,0.4,0.5,0.3,0.7]).reshape(3, 2),
+        "input": jnp.array([0.3, 0.7, 0.4]).reshape(3, 1),
+        "target": jnp.array([0.3, 0.7, 0.4, 0.5, 0.3, 0.7]).reshape(3, 2),
     }
 
-    best_params = {"a": jnp.array([1.7,2.3]), "b": jnp.array([-0.5,-1])}
+    best_params = {"a": jnp.array([1.7, 2.3]), "b": jnp.array([-0.5, -1])}
 
     fisher_mv = create_empirical_fisher_mv(
         model_fn=fn,
@@ -84,12 +83,19 @@ def test_emp_fisher_on_quadratic_fn_2():
         vmap_over_data=True,
     )
 
-
     # Construct full matrix via mvp with one-hot vectors as PyTrees
-    fisher_row_1 = full_flatten(fisher_mv({"a": jnp.array([1.0,0.0]), "b": jnp.array([0.0,0.0])}))
-    fisher_row_2 = full_flatten(fisher_mv({"a": jnp.array([0.0,1.0]), "b": jnp.array([0.0,0.0])}))
-    fisher_row_3 = full_flatten(fisher_mv({"a": jnp.array([0.0,0.0]), "b": jnp.array([1.0,0.0])}))
-    fisher_row_4 = full_flatten(fisher_mv({"a": jnp.array([0.0,0.0]), "b": jnp.array([0.0,1.0])}))
+    fisher_row_1 = full_flatten(
+        fisher_mv({"a": jnp.array([1.0, 0.0]), "b": jnp.array([0.0, 0.0])})
+    )
+    fisher_row_2 = full_flatten(
+        fisher_mv({"a": jnp.array([0.0, 1.0]), "b": jnp.array([0.0, 0.0])})
+    )
+    fisher_row_3 = full_flatten(
+        fisher_mv({"a": jnp.array([0.0, 0.0]), "b": jnp.array([1.0, 0.0])})
+    )
+    fisher_row_4 = full_flatten(
+        fisher_mv({"a": jnp.array([0.0, 0.0]), "b": jnp.array([0.0, 1.0])})
+    )
 
     fisher_laplax = jnp.stack((fisher_row_1, fisher_row_2, fisher_row_3, fisher_row_4))
 
@@ -99,7 +105,7 @@ def test_emp_fisher_on_quadratic_fn_2():
         df_db0 = input.item()
         df_da1 = input.item()
         df_db1 = 1
-        return jnp.array([[df_da0, 0.0, df_db0, 0.0],[0.0, df_da1, 0.0, df_db1]])
+        return jnp.array([[df_da0, 0.0, df_db0, 0.0], [0.0, df_da1, 0.0, df_db1]])
 
     def dc_df(f, y):  # For MSE Loss
         return 2 * (f - y)
@@ -109,12 +115,11 @@ def test_emp_fisher_on_quadratic_fn_2():
         dc_df(fn(x, best_params).squeeze(), y.squeeze())
         for x, y in zip(data["input"], data["target"], strict=True)
     ]
-    print(jacs[0].shape)
-    print(grads[0].shape)
 
     fisher_manual = jnp.mean(
         jnp.array([
-            jac.T @ grad[:,None] @ grad[None,:] @ jac for jac, grad in zip(jacs, grads, strict=True)
+            jac.T @ grad[:, None] @ grad[None, :] @ jac
+            for jac, grad in zip(jacs, grads, strict=True)
         ]),
         axis=0,
     )
@@ -126,10 +131,11 @@ def test_MSE_samples():
     key = jax.random.key(42)
     f_n = jnp.arange(5, dtype=float)
     samples = sample_likelihood(LossFn.MSE, f_n, 4, key)
-    assert samples.shape == (5,4)
+    assert samples.shape == (5, 4)
+
 
 def test_CE_samples():
     key = jax.random.key(42)
     f_n = jnp.arange(10, dtype=float)
     samples = sample_likelihood(LossFn.CROSS_ENTROPY, f_n, 4, key)
-    assert samples.shape == (1,4)
+    assert samples.shape == (1, 4)
