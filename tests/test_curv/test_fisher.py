@@ -53,5 +53,5 @@ def test_emp_fisher_on_quadratic_fn():
         ]),
         axis=0,
     )
-
     assert jnp.allclose(fisher_laplax, fisher_manual)
+
