@@ -283,9 +283,10 @@ def sample_likelihood(loss_fn, f_n, M, key):
     if loss_fn is LossFn.MSE:
         unit_samples =  jax.random.normal(key, shape=(f_n.shape[0], M))
         return unit_samples + f_n[:,None]
-        
 
+    if loss_fn is LossFn.CROSS_ENTROPY:
+        return jax.random.categorical(key, f_n, shape=(1,M), replace=True)
     else:
-        msg = f"Unsupported LossFn {loss_fn} to sample from. Must be LossFn.MSE or LosFn.CE"
+        msg = f"Unsupported LossFn {loss_fn} to sample from."
         raise ValueError(msg)
 

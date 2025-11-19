@@ -127,3 +127,9 @@ def test_MSE_samples():
     f_n = jnp.arange(5, dtype=float)
     samples = sample_likelihood(LossFn.MSE, f_n, 4, key)
     assert samples.shape == (5,4)
+
+def test_CE_samples():
+    key = jax.random.key(42)
+    f_n = jnp.arange(10, dtype=float)
+    samples = sample_likelihood(LossFn.CROSS_ENTROPY, f_n, 4, key)
+    assert samples.shape == (1,4)
