@@ -27,8 +27,9 @@ def create_empirical_fisher_mv_without_data(
 ) -> Callable[[Params, Data], Params]:
     r"""Create empirical Fisher matrix-vector product without fixed data.
 
+    The resulting matrix vector product computes:
     $$
-    \text{factor} \cdot \sum_n J_n^\top \left(\nabla_{f_n}
+    \text{factor} \frac{1}{N}\cdot \sum_n J_n^\top \left(\nabla_{f_n}
     c(y=y_n,\hat{y}=f_n)\right) \left(\nabla_{f_n}
     c(y=y_n,\hat{y}=f_n)\right)^\top J_n \cdot v
     $$
@@ -95,8 +96,9 @@ def create_empirical_fisher_mv(
 ) -> Callable[[Params], Params]:
     r"""Creates the empirical Fisher matrix-vector product with data.
 
+    The resulting matrix vector product computes:
     $$
-    \text{factor} \cdot \sum_n J_n^\top \left(\nabla_{f_n}
+    \text{factor} \frac{1}{N}\cdot \sum_n J_n^\top \left(\nabla_{f_n}
     c(y=y_n,\hat{y}=f_n)\right) \left(\nabla_{f_n}
     c(y=y_n,\hat{y}=f_n)\right)^\top J_n \cdot v
     $$
@@ -155,3 +157,50 @@ def create_empirical_fisher_mv(
         return fisher_mv(vec, data)
 
     return wrapped_fisher_mv
+
+
+def create_MC_fisher_mv_without_data(
+    model_fn: ModelFn,
+    params: Params,
+    loss_fn: LossFn | str | Callable | None,
+    factor: Float,
+    *,
+    vmap_over_data: bool = True,
+    mc_samples: Int | None = 1,
+) -> Callable[[Params, Data], Params]:
+    r"""Create Monte-Carlo approximated Fisher matrix-vector product without fixed data.
+
+    The resulting matrix vector product computes:
+    $$
+    \text{factor} \cdot \frac{1}{NM}\sum_n,m J_n^\top \left(\nabla_{f_n}
+    c(y=\tilde{y}_{n,m},\hat{y}=f_n)\right) \left(\nabla_{f_n}
+    c(y=\tilde{y}_{n,m},\hat{y}=f_n)\right)^\top J_n \cdot v
+    $$
+
+    #where $J_n$ is the Jacobian of the model w.r.t the parameters
+    #evaluated at data point $n$, $c(y,\hat{y})$ is the
+    #loss function, and $v$ is the vector.
+    #$\tilde{y}_{n,m}$ is the m-th Monte Carlo sample of the label under the liklihood
+    # induced by the loss function: $r(y|f_n) = \exp(-c(y,\hat{y}=f_n))$ 
+    #at data point $n$.
+    #The `factor` is a scaling factor that
+    #is used to scale the Fisher matrix.
+
+    This function computes the above expression efficiently without hardcoding the
+        dataset, making it suitable for distributed or batched computations.
+
+    Args:
+        model_fn: The model's forward pass function.
+        params: Model parameters.
+        loss_fn: Loss function to use for the Fisher computation.
+        factor: Scaling factor for the Fisher computation.
+        vmap_over_data: Whether to vmap over the data. Defaults to True.
+        mc_samples: Number of MC samples to use. Defaults to 1.
+
+    Returns:
+        A function that takes a vector and a batch of data,
+        and computes the Monte-Carlo Fisher matrix-vector product.
+
+    Note:
+        The function assumes as a default that the data has a batch dimension.
+    """
