@@ -3,6 +3,7 @@
 from collections.abc import Callable
 
 import jax
+import jax.numpy as jnp
 
 from laplax.curv.loss import fetch_loss_gradient_fn
 from laplax.enums import LossFn
@@ -13,7 +14,7 @@ from laplax.types import (
     ModelFn,
     Params,
 )
-from laplax.util.tree import mul
+from laplax.util.tree import mul,mean
 
 
 def create_empirical_fisher_mv_without_data(
@@ -58,28 +59,32 @@ def create_empirical_fisher_mv_without_data(
     Note:
         The function assumes as a default that the data has a batch dimension.
     """
-    # Create loss gradient product
-    loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, vmap_over_data)
 
-    def empirical_fisher_mv(vec, data):
-        def fwd(p):
-            # Step 1: Single jvp for entire batch, if vmap_over_data is True
-            if vmap_over_data:
-                return jax.vmap(lambda x: model_fn(input=x, params=p))(data["input"])
-            return model_fn(input=data["input"], params=p)
+    loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, vmap_over_data=False)
 
-        # Step 2: Linearize the forward pass
-        _, jvp = jax.linearize(fwd, params)
-
-        grad = loss_grad_fn(fwd(params), data["target"])
-        vjp = jax.linear_transpose(jvp, vec)
-
-        Jv = jvp(vec)
-        GtJv = grad.T @ Jv
-        GGtJv = grad @ GtJv
+    def emp_fisher_single_datum(x,y, vec):
+        model_as_fn_of_params = lambda p: model_fn(input=x, params=p).squeeze()
+        f_evaluated = model_as_fn_of_params(params)                 # O
+        print(f_evaluated)
+        jvp = jax.linearize(model_as_fn_of_params, params)[1]       # P -> O
+        vjp = jax.linear_transpose(jvp, vec)                        # O -> P
+        #y                                                          # O
+        grad = loss_grad_fn(f_evaluated, y)                         # O
+        grad_mv = lambda v: (grad[:,None] @ v).squeeze()                        # 1 -> O
+        #grad_T_mv = jax.linear_transpose(grad_mv, jnp.zeros(1))     # O -> 1
+        grad_T_mv = lambda v: grad[None,:] @ v[None,]
+        Jv = jvp(vec)                                               # O
+        GtJv = grad_T_mv(Jv)                                    # 1
+        GGtJv = grad_mv(GtJv)                                       # O
+        print(GGtJv)
         JtGGtJv = vjp(GGtJv)[0]
         return mul(factor, JtGGtJv)
 
+    def empirical_fisher_mv(vec, data):
+        if vmap_over_data:
+            return mean(jax.vmap(lambda datum: emp_fisher_single_datum(datum["input"],datum["target"], vec))(data), axis=0)
+        return emp_fisher_single_datum(data["input"], data["target"], vec)
+    
     return empirical_fisher_mv
 
 
