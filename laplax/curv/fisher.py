@@ -13,6 +13,7 @@ from laplax.types import (
     Int,
     ModelFn,
     Params,
+    KeyType,
 )
 from laplax.util.tree import mul,mean
 
@@ -201,6 +202,7 @@ def create_MC_fisher_mv_without_data(
     params: Params,
     loss_fn: LossFn | str | Callable | None,
     factor: Float,
+    key: KeyType,
     *,
     vmap_over_data: bool = True,
     mc_samples: Int | None = 1,
@@ -231,6 +233,7 @@ def create_MC_fisher_mv_without_data(
         params: Model parameters.
         loss_fn: Loss function to use for the Fisher computation.
         factor: Scaling factor for the Fisher computation.
+        key: PRNG Key to use for sampling
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         mc_samples: Number of MC samples to use. Defaults to 1.
 
@@ -256,7 +259,7 @@ def create_MC_fisher_mv_without_data(
         jvp = jax.linearize(model_as_fn_of_params, params)[1]
         
         # Construct would-be-gradients mv
-        y_samples = sample_likelihood(loss_fn, f_evaluated, M)
+        y_samples = sample_likelihood(loss_fn, f_evaluated, M, key)
 
         #TODO: Is this (O,M) = loss_grad_fn( (O,1), (O,M) ) ?
         grad = loss_grad_fn(f_evaluated, y_samples)
@@ -273,3 +276,16 @@ def create_MC_fisher_mv_without_data(
         return mc_fisher_single_datum(data["input"], data["target"], vec)
     
     return mc_fisher_mv
+
+
+def sample_likelihood(loss_fn, f_n, M, key):
+    # sample M values $\tilde{y} from e^{-loss_fn(y, f_n)}$
+    if loss_fn is LossFn.MSE:
+        unit_samples =  jax.random.normal(key, shape=(f_n.shape[0], M))
+        return unit_samples + f_n[:,None]
+        
+
+    else:
+        msg = f"Unsupported LossFn {loss_fn} to sample from. Must be LossFn.MSE or LosFn.CE"
+        raise ValueError(msg)
+
