@@ -27,14 +27,17 @@ def create_empirical_fisher_mv_without_data(
 ) -> Callable[[Params, Data], Params]:
     r"""Create empirical Fisher matrix-vector product without fixed data.
 
-    #$$
-    #\text{factor} \cdot \sum_i J_i^\top \nabla^2_{f(x_i, \theta), f(x_i, \theta)}
-    #\mathcal{L}(f(x_i, \theta), y_i) J_i \cdot v
-    #$$
+    $$
+    \text{factor} \cdot \sum_n J_n^\top \left(\nabla_{f_n}
+    c(y=y_n,\hat{y}=f_n)\right) \left(\nabla_{f_n}
+    c(y=y_n,\hat{y}=f_n)\right)^\top J_n \cdot v
+    $$
 
-    #where $J_i$ is the Jacobian of the model at data point $i$, $H_{L, i}$ is the
-    #Hessian of the loss, and $v$ is the vector. The `factor` is a scaling factor that
-    #is used to scale the GGN matrix.
+    #where $J_n$ is the Jacobian of the model w.r.t the parameters
+    #evaluated at data point $n$, $c(y=y_n,\hat{y}=f_n)$ is the
+    #loss function evaluated at data point $n$, and $v$ is the vector.
+    #The `factor` is a scaling factor that
+    #is used to scale the Fisher matrix.
 
     This function computes the above expression efficiently without hardcoding the
         dataset, making it suitable for distributed or batched computations.
@@ -91,6 +94,17 @@ def create_empirical_fisher_mv(
     loss_grad_fn: Callable | None = None,
 ) -> Callable[[Params], Params]:
     r"""Creates the empirical Fisher matrix-vector product with data.
+
+    $$
+    \text{factor} \cdot \sum_n J_n^\top \left(\nabla_{f_n}
+    c(y=y_n,\hat{y}=f_n)\right) \left(\nabla_{f_n}
+    c(y=y_n,\hat{y}=f_n)\right)^\top J_n \cdot v
+    $$
+
+    #where $J_n$ is the Jacobian of the model w.r.t the parameters
+    #evaluated at data point $n$, $c(y=y_n,\hat{y}=f_n)$ is the
+    #loss function evaluated at data point $n$, and $v$ is the vector.
+    #The `factor` is a scaling factor that is used to scale the Fisher matrix.
 
     This function hardcodes the dataset, making it ideal for scenarios where the dataset
     remains fixed.
