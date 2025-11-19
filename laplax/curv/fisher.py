@@ -62,6 +62,13 @@ def create_empirical_fisher_mv_without_data(
 
     loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, vmap_over_data=False)
 
+    def transpose(linop, example_input):
+        # SImple wrapper around jax.linear_transpose to 
+        # directly return transpose of linop with single argument 
+        t = jax.linear_transpose(linop, example_input)
+        return lambda v: t(v)[0]
+
+
     def emp_fisher_single_datum(x,y, vec):
         
         # Forward pass
@@ -71,18 +78,18 @@ def create_empirical_fisher_mv_without_data(
         # atleast_2d ensures jvp/vjp have signature expected by fisher calculation
         model_as_fn_of_params = lambda p: jnp.atleast_2d(model_fn(input=x, params=p))
         jvp = jax.linearize(model_as_fn_of_params, params)[1]
-        vjp = jax.linear_transpose(jvp, vec)
+        vjp = transpose(jvp, vec)
         
         # Construct gradient mv and its transpose
         grad = loss_grad_fn(f_evaluated, y)[:,None]
         grad_mv = lambda v: grad @ v
-        grad_T_mv = jax.linear_transpose(grad_mv, jnp.zeros((1,1)))
+        grad_T_mv = transpose(grad_mv, jnp.atleast_2d(y))
 
         # nest matrix vector product calls
         Jv = jvp(vec)
-        GtJv = grad_T_mv(Jv)[0]
+        GtJv = grad_T_mv(Jv)
         GGtJv = grad_mv(GtJv)
-        JtGGtJv = vjp(GGtJv)[0]
+        JtGGtJv = vjp(GGtJv)
         return mul(factor, JtGGtJv)
 
     def empirical_fisher_mv(vec, data):
