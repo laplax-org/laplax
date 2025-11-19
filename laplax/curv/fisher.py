@@ -70,10 +70,9 @@ def create_empirical_fisher_mv_without_data(
 
 
     def emp_fisher_single_datum(x,y, vec):
-        
         # Forward pass
-        f_evaluated = model_fn(input=x, params=params)
-
+        f_evaluated = model_fn(input=x, params=params).squeeze()
+        
         # Construct jvp/vjp of forward pass
         # atleast_2d ensures jvp/vjp have signature expected by fisher calculation
         model_as_fn_of_params = lambda p: jnp.atleast_2d(model_fn(input=x, params=p))
@@ -83,7 +82,7 @@ def create_empirical_fisher_mv_without_data(
         # Construct gradient mv and its transpose
         grad = loss_grad_fn(f_evaluated, y)[:,None]
         grad_mv = lambda v: grad @ v
-        grad_T_mv = transpose(grad_mv, jnp.atleast_2d(y))
+        grad_T_mv = transpose(grad_mv, jnp.zeros((1,1)))
 
         # nest matrix vector product calls
         Jv = jvp(vec)
