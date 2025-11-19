@@ -61,10 +61,18 @@ def set_get_weight_sample(key, mean_params, scale_mv, num_samples, **kwargs):
         **kwargs: Additional arguments, including:
             - `set_get_weight_sample_precompute`: Controls whether samples are
               precomputed.
+            - `fsp`: If present, uses a fixed sample path for weight sampling.
 
     Returns:
         Callable: A function that generates a specific weight sample by index.
     """
+    if "fsp" in kwargs:
+
+        def get_weight_sample(rank, dtype):
+            return jax.random.normal(key, shape=(num_samples, rank), dtype=dtype)
+
+        return get_weight_sample
+
     keys = jax.random.split(key, num_samples)
 
     def get_weight_sample(idx):
@@ -163,6 +171,7 @@ def get_dist_state(
         key: PRNG key for generating random samples.
         **kwargs: Additional arguments, including:
             - `set_get_weight_sample_precompute`.
+            - `fsp`.
 
     Returns:
         DistState: A dictionary containing functions and parameters for uncertainty
@@ -327,13 +336,9 @@ def nonlin_pred_var(
 
     if "pred_cov" in results:
         pred_cov = results["pred_cov"]
-        pred_var = (
-            jnp.diagonal(pred_cov)
-            if pred_cov.ndim >= 2
-            else jnp.reshape(pred_cov, (-1,))
-        )
-        pred_var = pred_var.reshape(aux["pred_ensemble"].shape[1:])
-        results["pred_var"] = pred_var
+        if pred_cov.ndim > 0:
+            pred_cov = jnp.diagonal(pred_cov)
+        results["pred_var"] = pred_cov
     else:
         pred_ensemble = aux["pred_ensemble"]
         results["pred_var"] = util.tree.var(pred_ensemble, axis=0)
@@ -678,16 +683,13 @@ def lin_pred_lsqrt_low_rank_cov(
     aux: dict[str, Any],
     **kwargs,
 ) -> tuple[dict[str, Array], dict[str, Any]]:
-    r"""Attach low-rank predictive info and cheap diagonal.
+    """Attach low-rank predictive info and cheap diagonal.
 
     - Keeps `low_rank_terms` (computed in lin_setup when low_rank=True).
     - Computes `pred_var` from the low-rank factors without densifying.
-      For Σ = U diag(S²) Uᵀ + σ² I with U ∈ R^{D \times k},
+      For Σ = U diag(S²) Uᵀ + σ² I with U ∈ R^{D×k},
       diag(Σ) = σ² 1 + Σ_j (S_j U[:, j])².
-
-    Returns:
-        tuple: Updated `results` and `aux`.
-    """
+    """  # noqa: DOC201
     if "pred_mean" not in results:
         results, aux = lin_pred_mean(results, aux, **kwargs)
 
@@ -742,6 +744,59 @@ def lin_samples(
         batch_size=kwargs.get(
             "lin_samples_batch_size", kwargs.get("weight_batch_size")
         ),
+    )
+    return results, aux
+
+
+def fsp_samples(
+    results,
+    aux,
+    dist_state: DistState,
+    **kwargs,
+):
+    """Generate and store samples from the linearized distribution for FSP.
+
+    This function computes samples in the output space by applying the scale
+    matrix to weight samples generated from the posterior distribution.
+
+    Args:
+        results: Dictionary to store computed results.
+        aux: Auxiliary data containing the scale matrix function.
+        dist_state: Distribution state containing sampling functions and sample count.
+        **kwargs: Additional arguments, including:
+            - `lin_samples_batch_size`: Batch size for computing samples.
+
+    Returns:
+        tuple: Updated `results` and `aux`.
+
+    Raises:
+        TypeError: If the scale matrix or sampling functions are invalid.
+    """  # noqa: DOC502
+    if "pred_mean" not in results:
+        results, aux = lin_pred_mean(results, aux)
+
+    # Unpack arguments
+    jac_mv = aux["jac_mv"]
+    posterior: Posterior = dist_state["posterior_state"]
+    get_weight_samples = dist_state["get_weight_samples"]
+    rank = posterior.rank
+    batch_size = kwargs.get("compute_batch_size", rank)
+
+    scale_mv = posterior.scale_mv(posterior.state)
+    eye = jnp.eye(rank, dtype=results["pred_mean"].dtype)
+
+    def col_js(e_vec: Array) -> PredArray:
+        delta_w = scale_mv(e_vec)
+        return jac_mv(delta_w)
+
+    col_js = jax.jit(col_js)
+    JS_cols = jax.lax.map(col_js, eye.T, batch_size=batch_size)
+    JS = jnp.moveaxis(JS_cols, 0, -1)
+
+    eps = get_weight_samples(rank, results["pred_mean"].dtype)
+
+    results["samples"] = results["pred_mean"][None, ...] + jnp.einsum(
+        "sr,...r->s...", eps, JS
     )
     return results, aux
 
