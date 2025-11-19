@@ -1,3 +1,5 @@
+# likelihood.py
+
 """Compute the marginal log-likelihood for different curvature estimations.
 
 Implemented according to:
@@ -7,6 +9,7 @@ Proceedings of the International Conference on Machine Learning, 25(3), 234-245.
 
 It includes functions to calculate the marginal log-likelihood based on various
 curvature approximations, including:
+
 - full
 - diagonal
 - low-rank
@@ -44,14 +47,18 @@ def joint_log_likelihood(
     r"""Computes the joint log-likelihood for a model.
 
     This function computes the joint log-likelihood for a model, which is given by:
-    .. math::
-        \log p(D, \theta | M) = \log p(D | \theta, M) + \log p(\theta | M)
 
-    If we assume a Gaussian prior on the parameters with precision :math:`\tau^{-2}`,
+    $$
+    \log p(D, \theta | M) = \log p(D | \theta, M) + \log p(\theta | M)
+    $$
+
+    If we assume a Gaussian prior on the parameters with precision $\tau^{-2}$,
     then the log-prior is given by:
-    .. math::
+
+    $$
         \log p(\theta \vert \tau^{-2}) = -\frac{1}{2} \log |\frac{1}{2\pi} \tau^{-2}
         \vert - \frac{1}{2} \tau^{-2} \vert \theta \vert^2
+    $$
 
     Args:
         full_fn: model loss function that has the parameters and the data as input and
@@ -73,8 +80,8 @@ def joint_log_likelihood(
     log_prior = log_prior_term1 + log_prior_term2
 
     # Compute the log-likelihood
-    sigma = prior_arguments.get("sigma", 1.0)
-    log_likelihood = -(1 / (2 * sigma)) * full_fn(
+    sigma = prior_arguments["sigma"]
+    log_likelihood = -(1 / (2 * sigma**2)) * full_fn(
         data["input"],
         data["target"],
         params,
@@ -94,9 +101,11 @@ def full_marginal_log_likelihood(
     r"""Computes the marginal log likelihood for the full posterior function.
 
     The marginal log-likelihood is given by:
-    .. math::
+
+    $$
         \log p(D | M) = \log p(D, \theta_* | M)
         - \frac{1}{2} \log |\frac{1}{2\pi} H_{\theta_*}\vert
+    $$
 
     Args:
         posterior_precision: posterior precision
@@ -138,15 +147,19 @@ def diagonal_marginal_log_likelihood(
     r"""Computes the marginal log likelihood for a diagonal approximation.
 
     The marginal log-likelihood is given by:
-    .. math::
+
+    $$
         \log p(D | M) = \log p(D, \theta_* | M)
             - \frac{1}{2} \log |\frac{1}{2\pi} H_{\theta_*}\vert
+    $$
 
     Here the log-determinant of the posterior precision simplifies to:
-    .. math::
-        \sum_{i=1}^{P} \log d_i
 
-    where :math:`d_i` is the :math:`i`-th diagonal element of the posterior precision.
+    $$
+        \sum_{i=1}^{P} \log d_i
+    $$
+
+    where $d_i$ is the $i$-th diagonal element of the posterior precision.
 
     Args:
         posterior_precision: posterior precision
@@ -188,17 +201,21 @@ def low_rank_marginal_log_likelihood(
     r"""Computes the marginal log likelihood for a low-rank approximation.
 
     The marginal log-likelihood is given by:
-    .. math::
-        \log p(D | M) = \log p(D, \theta_* | M)
-            - \frac{1}{2} \log |\frac{1}{2\pi} H_{\theta_*}\vert
 
-    Here the log-determinant of the posterior precision (with math:: U\Lambda U^T + D)
+    $$
+    \log p(D | M) = \log p(D, \theta_* | M)
+        - \frac{1}{2} \log |\frac{1}{2\pi} H_{\theta_*}\vert
+    $$
+
+    Here the log-determinant of the posterior precision (with $U\Lambda U^T + D$)
     simplifies to:
-    .. math::
-        \sum_{i=1}^{R} \log ( 1 + d_i^{-1} \cdot \lambda_i) + \sum_{i=1}^{P} \log d_i
 
-    where :math:`d_i` is the :math:`i`-th diagonal element of the prior precision and
-    :math:`\lambda_i` is the :math:`i`-th eigenvalue of the low-rank approximation.
+    $$
+    \sum_{i=1}^{R} \log ( 1 + d_i^{-1} \cdot \lambda_i) + \sum_{i=1}^{P} \log d_i
+    $$
+
+    where $d_i$ is the $i$-th diagonal element of the prior precision and
+    $\lambda_i$ is the $i$-th eigenvalue of the low-rank approximation.
 
     Args:
         posterior_precision: posterior precision
@@ -250,17 +267,19 @@ def marginal_log_likelihood(
     loss_fn: LossFn | str | Callable,
     curv_type: CurvatureKeyType,
     *,
-    has_batch: bool = False,
+    vmap_over_data: bool = False,
     loss_scaling_factor: Float = 1.0,
-):
+) -> Float:
     r"""Compute the marginal log-likelihood for a given curvature approximation.
 
     The marginal log-likelihood is given by:
-    .. math::
-        \log p(D | M) = \log p(D, \theta_* | M)
-            - \frac{1}{2} \log |\frac{1}{2\pi} H_{\theta_*}\vert
 
-    Here :math:`H_{\theta_*}` is the Hessian/GGN of the loss function evaluated at the
+    $$
+    \log p(D | M) = \log p(D, \theta_* | M)
+        - \frac{1}{2} \log |\frac{1}{2\pi} H_{\theta_*}\vert
+    $$
+
+    Here $H_{\theta_*}$ is the Hessian/GGN of the loss function evaluated at the
     model parameters. The likelihood function is given by the negative loss function.
 
     Args:
@@ -271,13 +290,17 @@ def marginal_log_likelihood(
         params: model parameters
         loss_fn: loss function
         curv_type: curvature type
-        has_batch: whether the model has a batch dimension
+        vmap_over_data: whether the model has a batch dimension
         loss_scaling_factor: loss scaling factor
 
     Returns:
         The marginal log-likelihood.
     """
-    full_fn = concatenate_model_and_loss_fn(model_fn, loss_fn, has_batch=has_batch)
+    full_fn = concatenate_model_and_loss_fn(
+        model_fn,
+        loss_fn,
+        vmap_over_data=vmap_over_data,
+    )
 
     posterior_precision = CURVATURE_PRECISION_METHODS[curv_type](
         curv_estimate,

@@ -26,6 +26,7 @@ def test_hessian_rosenbrock(rosenbrock):
         data={"input": jnp.zeros(1), "target": jnp.zeros(1)},
         loss_fn=rosenbrock.loss_fn,
         num_total_samples=1,
+        vmap_over_data=False,
     )
 
     hessian_calc = jax.lax.map(hessian_mv, jnp.eye(2))

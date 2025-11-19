@@ -111,7 +111,11 @@ class LaplaceComparison:
         )
 
     def _build_torch_model(self):
-        """Just build the Torch model (don't train)."""
+        """Just build the Torch model (don't train).
+
+        Returns:
+            The Torch model.
+        """
         torch.manual_seed(self.seed)
         return torch.nn.Sequential(
             torch.nn.Linear(1, 50),
@@ -297,7 +301,11 @@ class LaplaceComparison:
 
 @pytest.fixture(scope="module")
 def trained_laplace_comparison():
-    """Build a LaplaceComparison instance, train it once, and return it."""
+    """Build a LaplaceComparison instance, train it once, and return it.
+
+    Returns:
+        The LaplaceComparison object.
+    """
     comparison = LaplaceComparison(
         n_epochs=1000,
         seed=711,

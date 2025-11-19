@@ -1,3 +1,5 @@
+# tree.py
+
 """Relevant tree operations."""
 
 import math
@@ -8,7 +10,7 @@ from itertools import starmap
 import jax
 import jax.numpy as jnp
 
-from laplax.types import Any, Array, Callable, Float, KeyType, PyTree
+from laplax.types import Any, Array, Callable, Float, KeyType, Kwargs, PyTree
 from laplax.util.flatten import unravel_array_into_pytree
 
 # ---------------------------------------------------------------
@@ -16,7 +18,7 @@ from laplax.util.flatten import unravel_array_into_pytree
 # ---------------------------------------------------------------
 
 
-def get_size(tree: PyTree) -> PyTree:
+def get_size(tree: PyTree) -> int:
     """Compute the total number of elements in a PyTree.
 
     Args:
@@ -27,6 +29,19 @@ def get_size(tree: PyTree) -> PyTree:
     """
     flat, _ = jax.tree_util.tree_flatten(tree)
     return sum(math.prod(arr.shape) for arr in flat)
+
+
+def to_dtype(tree: PyTree, dtype: Any) -> PyTree:
+    """Convert all elements of a PyTree to a specified data type.
+
+    Args:
+        tree: A PyTree whose elements are to be converted.
+        dtype: The target data type.
+
+    Returns:
+        A PyTree with all elements converted to the specified data type.
+    """
+    return jax.tree.map(lambda x: x.astype(dtype), tree)
 
 
 # ---------------------------------------------------------------
@@ -112,7 +127,7 @@ def invert(tree: PyTree) -> PyTree:
     return jax.tree.map(jnp.invert, tree)
 
 
-def mean(tree: PyTree, **kwargs) -> PyTree:
+def mean(tree: PyTree, **kwargs: Kwargs) -> PyTree:
     """Compute the mean of each element in a PyTree.
 
     Args:
@@ -125,7 +140,7 @@ def mean(tree: PyTree, **kwargs) -> PyTree:
     return jax.tree.map(partial(jnp.mean, **kwargs), tree)
 
 
-def std(tree: PyTree, **kwargs) -> PyTree:
+def std(tree: PyTree, **kwargs: Kwargs) -> PyTree:
     """Compute the standard deviation of each element in a PyTree.
 
     Args:
@@ -138,7 +153,7 @@ def std(tree: PyTree, **kwargs) -> PyTree:
     return jax.tree.map(partial(jnp.std, **kwargs), tree)
 
 
-def var(tree: PyTree, **kwargs) -> PyTree:
+def var(tree: PyTree, **kwargs: Kwargs) -> PyTree:
     """Compute the variance of each element in a PyTree.
 
     Args:
@@ -151,7 +166,7 @@ def var(tree: PyTree, **kwargs) -> PyTree:
     return jax.tree.map(partial(jnp.var, **kwargs), tree)
 
 
-def cov(tree: PyTree, **kwargs) -> PyTree:
+def cov(tree: PyTree, **kwargs: Kwargs) -> PyTree:
     """Compute the covariance of each element in a PyTree.
 
     Args:
@@ -241,7 +256,7 @@ def zeros_like(tree: PyTree) -> PyTree:
     return jax.tree.map(jnp.zeros_like, tree)
 
 
-def randn_like(key: KeyType, tree: PyTree) -> PyTree:
+def randn_tree_like(key: KeyType, tree: PyTree) -> PyTree:
     """Generate a PyTree of random normal values with the same structure as the input.
 
     Args:
@@ -266,10 +281,29 @@ def randn_like(key: KeyType, tree: PyTree) -> PyTree:
     return jax.tree.unflatten(treedef, random_leaves)
 
 
+def randn_like(key: KeyType, layout: PyTree | int) -> PyTree:
+    """Generate random normal values matching the given layout.
+
+    Args:
+        key: A JAX PRNG key.
+        layout: A PyTree whose structure will be replicated, or the rank of a
+            1D random vector.
+
+    Returns:
+        A PyTree of random normal values.
+    """
+    if isinstance(layout, int):
+        return jax.random.normal(key, shape=(layout,))
+
+    return randn_tree_like(key, layout)
+
+
 def normal_like(
     key: KeyType,
     mean: PyTree,
     scale_mv: Callable[[PyTree], PyTree],
+    *,
+    rank: int | None = None,
 ) -> PyTree:
     """Generate a PyTree of random normal values scaled and shifted by `mean`.
 
@@ -277,11 +311,13 @@ def normal_like(
         key: A JAX PRNG key.
         mean: A PyTree representing the mean of the distribution.
         scale_mv: A callable that scales a PyTree.
+        rank: The rank of the PyTree. If `None`, the layout is inferred from `mean`
+            assuming full rank.
 
     Returns:
         A PyTree of random normal values shifted by `mean`.
     """
-    return add(mean, scale_mv(randn_like(key, mean)))
+    return add(mean, scale_mv(randn_like(key, layout=mean if rank is None else rank)))
 
 
 def basis_vector_from_index(idx: int, tree: PyTree) -> PyTree:
@@ -377,7 +413,7 @@ def tree_vec_get(tree: PyTree, idx: int) -> Any:
         The element at the specified index.
     """
     if isinstance(tree, jnp.ndarray):
-        return tree[idx]  # Also works with arrays.
+        return tree.reshape(-1)[idx]
     # Column flat and get index
     flat, _ = jax.tree_util.tree_flatten(tree)
     flat = jnp.concatenate([f.reshape(-1) for f in flat])

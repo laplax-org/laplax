@@ -271,7 +271,11 @@ def create_task(
     linear_in,
     seed,
 ):
-    """Factory function to create regression tasks."""
+    """Factory function to create regression tasks.
+
+    Returns:
+        The initialized task.
+    """
     return task_class(
         in_channels=in_channels,
         conv_features=conv_features,

@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 from tqdm import tqdm
 
-from laplax.types import Any, Array, Callable, Data, Iterable, Layout, PyTree
+from laplax.types import Any, Array, Callable, Data, Iterable, Kwargs, Layout, PyTree
 from laplax.util.flatten import wrap_function
 from laplax.util.mv import diagonal, to_dense
 from laplax.util.tree import add
@@ -27,6 +27,7 @@ def input_target_split(batch: tuple[Array, Array]) -> Data:
 
     Returns:
         A dictionary containing:
+
             - "input": Input data from the batch.
             - "target": Target data from the batch.
     """
@@ -59,7 +60,10 @@ def reduce_sum(
     return new_state, new_state
 
 
-def reduce_add(res_new: Any, state: Any | None = None) -> tuple[Any, Any]:
+def reduce_add(
+    res_new: Any,
+    state: Any | None = None,
+) -> tuple[Any, Any]:
     """Perform a reduction by adding results.
 
     Args:
@@ -75,7 +79,11 @@ def reduce_add(res_new: Any, state: Any | None = None) -> tuple[Any, Any]:
     return new_state, new_state
 
 
-def concat(tree1: PyTree, tree2: PyTree, axis: int = 0) -> PyTree:
+def concat(
+    tree1: PyTree,
+    tree2: PyTree,
+    axis: int = 0,
+) -> PyTree:
     """Concatenate two PyTrees along a specified axis.
 
     Args:
@@ -92,7 +100,10 @@ def concat(tree1: PyTree, tree2: PyTree, axis: int = 0) -> PyTree:
 
 
 def reduce_concat(
-    res_new: Any, state: Any | None = None, *, axis: int = 0
+    res_new: Any,
+    state: Any | None = None,
+    *,
+    axis: int = 0,
 ) -> tuple[Any, Any]:
     """Perform a reduction by concatenating results.
 
@@ -110,7 +121,10 @@ def reduce_concat(
     return new_state, new_state
 
 
-def reduce_online_mean(res_new: Any, state: tuple | None = None) -> tuple[Any, tuple]:
+def reduce_online_mean(
+    res_new: Any,
+    state: tuple | None = None,
+) -> tuple[Any, tuple]:
     """Compute the online mean of results, maintaining a running count and sum.
 
     Args:
@@ -151,9 +165,9 @@ def process_batches(
     data_loader: Iterable,
     transform: Callable,
     reduce: Callable,
-    *args,
+    *args: Any,
     verbose_logging: bool = False,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Any:
     """Process batches of data using a function, transformation, and reduction.
 
@@ -167,7 +181,7 @@ def process_batches(
         **kwargs: Additional keyword arguments for the processing function.
 
     Returns:
-        Any: The final result after processing all batches.
+        The final result after processing all batches.
 
     Raises:
         ValueError: If the data loader is empty.
@@ -197,7 +211,7 @@ def execute_with_data_loader(
     reduce: Callable = reduce_online_mean,
     *,
     jit: bool = False,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Any:
     """Execute batch processing with a data loader.
 
@@ -212,7 +226,7 @@ def execute_with_data_loader(
         **kwargs: Additional keyword arguments for the processing function.
 
     Returns:
-        Any: The final result after processing all batches.
+        The final result after processing all batches.
     """
     fn = jax.jit(function) if jit else function
     return process_batches(fn, data_loader, transform, reduce, **kwargs)
@@ -241,7 +255,7 @@ def wrap_function_with_data_loader(
         jit: Whether to JIT compile the processing function (default: False).
 
     Returns:
-        Callable: A wrapped function for batch processing.
+        A wrapped function for batch processing.
     """
     fn = jax.jit(function) if jit else function
 
@@ -265,7 +279,7 @@ class DataLoaderMV:
         reduce: Callable = reduce_online_mean,
         *,
         verbose_logging: bool = False,
-        **kwargs,
+        **kwargs: Kwargs,
     ) -> None:
         """Initialize the DataLoaderMV object.
 
@@ -308,7 +322,7 @@ class DataLoaderMV:
             )
         )
 
-    def lower_func(self, func: Callable, **kwargs) -> Array:
+    def lower_func(self, func: Callable, **kwargs: Kwargs) -> Array:
         """Apply a function to the data loader and return the result.
 
         Args:
@@ -339,14 +353,22 @@ class DataLoaderMV:
 
 
 @to_dense.register
-def _(mv: DataLoaderMV, layout: Layout, **kwargs) -> Array:
-    """Apply to_dense to DataLoaderMV."""
+def _(mv: DataLoaderMV, layout: Layout, **kwargs: Kwargs) -> Array:
+    """Apply to_dense to DataLoaderMV.
+
+    Returns:
+        The result of applying the function to the data loader.
+    """
     return mv.lower_func(to_dense, layout=layout, **kwargs)
 
 
 @diagonal.register
 def _(mv: DataLoaderMV, layout: Layout | None = None) -> Array:
-    """Apply diagonal to DataLoaderMV."""
+    """Apply diagonal to DataLoaderMV.
+
+    Returns:
+        The result of applying the function to the data loader.
+    """
     return mv.lower_func(diagonal, layout=layout)
 
 
@@ -357,7 +379,11 @@ def _(
     output_fn: Callable | None = None,
     argnums: int = 0,
 ) -> Callable:
-    """Apply wrap_function to DataLoaderMV."""
+    """Apply wrap_function to DataLoaderMV.
+
+    Returns:
+        A DataLoaderMV object representing the wrapped MV.
+    """
     # Create new transforms without overwriting existing ones
     new_input_transform = wrap_function(
         mv.input_transform, input_fn=input_fn, argnums=argnums

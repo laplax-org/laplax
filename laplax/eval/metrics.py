@@ -1,16 +1,34 @@
-"""Regression and classification metrics for evaluating uncertainty quantification.
+# metrics.py
+
+r"""Regression and Classification Metrics for Uncertainty Quantification.
 
 This module provides a comprehensive suite of classification and regression metrics for
 evaluating probabilistic models.
 
-Key features include:
-- **Classification Metrics**: Accuracy, top-k accuracy, cross-entropy, and
-    multiclass Brier score.
-- **Regression Metrics**: Root mean squared error (RMSE), q-value, and negative
-    log-likelihood (NLL) for Gaussian distributions.
-- **Bin Metrics**: Confidence and correctness metrics binned by confidence intervals.
+## Key Features
 
-The module leverages JAX for efficient numerical computation and supports flexible
+### Classification Metrics
+
+- **Accuracy**
+- **Top-k Accuracy**
+- **Cross-Entropy**
+- **Multiclass Brier Score**
+- **Expected Calibration Error (ECE)**
+- **Maximum Calibration Error (MCE)**
+
+### Regression Metrics
+
+- **Root Mean Squared Error (RMSE)**
+- **Chi-squared**
+- **Negative Log-Likelihood (NLL)** for Gaussian distributions
+
+### Bin Metrics
+
+- **Confidence and Correctness Metrics** binned by confidence intervals
+
+---
+
+The module leverages **JAX** for efficient numerical computation and supports flexible
 evaluation for diverse model outputs.
 """
 
@@ -20,16 +38,18 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
+from laplax.curv.lanczos import lanczos_lowrank
+from laplax.curv.utils import LowRankTerms
 from laplax.enums import CalibrationErrorNorm
 from laplax.eval.utils import apply_fns
-from laplax.types import Array, Float
+from laplax.types import Array, Float, Kwargs
 
 # --------------------------------------------------------------------------------
 # Classification metrics
 # --------------------------------------------------------------------------------
 
 
-def correctness(pred: Array, target: Array, **kwargs) -> Array:
+def correctness(pred: Array, target: Array, **kwargs: Kwargs) -> Array:
     """Determine if each target label matches the top-1 prediction.
 
     Computes a binary indicator for whether the predicted class matches the
@@ -44,7 +64,7 @@ def correctness(pred: Array, target: Array, **kwargs) -> Array:
 
     Returns:
         Boolean array of shape `(batch_size,)` indicating correctness
-        for each prediction.
+            for each prediction.
     """
     del kwargs
 
@@ -57,7 +77,7 @@ def correctness(pred: Array, target: Array, **kwargs) -> Array:
 
 
 def accuracy(
-    pred: Array, target: Array, top_k: tuple[int] = (1,), **kwargs
+    pred: Array, target: Array, top_k: tuple[int] = (1,), **kwargs: Kwargs
 ) -> list[Array]:
     """Compute top-k accuracy for specified values of k.
 
@@ -74,7 +94,7 @@ def accuracy(
 
     Returns:
         A list of accuracies corresponding to each k in `top_k`,
-        expressed as percentages.
+            expressed as percentages.
     """
     del kwargs
     max_k = min(max(top_k), pred.shape[1])
@@ -96,7 +116,9 @@ def accuracy(
     ]
 
 
-def cross_entropy(prob_p: Array, prob_q: Array, axis: int = -1, **kwargs) -> Array:
+def cross_entropy(
+    prob_p: Array, prob_q: Array, axis: int = -1, **kwargs: Kwargs
+) -> Array:
     """Compute cross-entropy between two probability distributions.
 
     This function calculates the cross-entropy of `prob_p` relative to `prob_q`,
@@ -117,7 +139,7 @@ def cross_entropy(prob_p: Array, prob_q: Array, axis: int = -1, **kwargs) -> Arr
     return -p_log_q.sum(axis=axis)
 
 
-def multiclass_brier(prob: Array, target: Array, **kwargs) -> Array:
+def multiclass_brier(prob: Array, target: Array, **kwargs: Kwargs) -> Array:
     """Compute the multiclass Brier score.
 
     The Brier score is a measure of the accuracy of probabilistic predictions.
@@ -144,7 +166,7 @@ def multiclass_brier(prob: Array, target: Array, **kwargs) -> Array:
 
 
 def calculate_bin_metrics(
-    confidence: Array, correctness: Array, num_bins: int = 15, **kwargs
+    confidence: Array, correctness: Array, num_bins: int = 15, **kwargs: Kwargs
 ) -> tuple[Array, Array, Array]:
     """Calculate bin-wise metrics for confidence and correctness.
 
@@ -159,7 +181,8 @@ def calculate_bin_metrics(
         **kwargs: Additional arguments (ignored).
 
     Returns:
-        Tuple of arrays:
+        Tuple of arrays containing:
+
             - Bin proportions: Proportion of samples in each bin.
             - Bin confidences: Average confidence for each bin.
             - Bin accuracies: Average accuracy for each bin.
@@ -191,7 +214,7 @@ def calibration_error(
     correctness: jax.Array,
     num_bins: int,
     norm: CalibrationErrorNorm,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> jax.Array:
     """Compute the expected/maximum calibration error.
 
@@ -205,7 +228,6 @@ def calibration_error(
 
     Returns:
         The ECE/MCE.
-
     """
     del kwargs
     bin_proportions, bin_confidences, bin_accuracies = calculate_bin_metrics(
@@ -223,7 +245,7 @@ def calibration_error(
 
 
 def expected_calibration_error(
-    confidence: jax.Array, correctness: jax.Array, num_bins: int, **kwargs
+    confidence: jax.Array, correctness: jax.Array, num_bins: int, **kwargs: Kwargs
 ) -> jax.Array:
     """Compute the expected calibration error.
 
@@ -248,7 +270,7 @@ def expected_calibration_error(
 
 
 def maximum_calibration_error(
-    confidence: jax.Array, correctness: jax.Array, num_bins: int, **kwargs
+    confidence: jax.Array, correctness: jax.Array, num_bins: int, **kwargs: Kwargs
 ) -> jax.Array:
     """Compute the maximum calibration error.
 
@@ -284,7 +306,7 @@ def chi_squared(
     target: Array,
     *,
     averaged: bool = True,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Float:
     r"""Estimate the q-value for predictions.
 
@@ -292,8 +314,11 @@ def chi_squared(
     variance.
 
     Mathematically:
-    $$\chi^2_{\text{Avg}}
-    = \frac{1}{n} \sum_{i=1}^n \frac{(y_i - \hat{y}_i)^2}{\sigma_i^2}.$$
+
+    $$
+    \chi^2_{\text{Avg}}
+    = \frac{1}{n} \sum_{i=1}^n \frac{(y_i - \hat{y}_i)^2}{\sigma_i^2}.
+    $$
 
     Args:
         pred_mean: Array of predicted means.
@@ -304,13 +329,23 @@ def chi_squared(
 
     Returns:
         The estimated q-value.
+
+    Raises:
+        ValueError: If ``pred_mean``, ``pred_std``, and ``target`` do not have
+            the same shape.
     """
     del kwargs
+    if pred_mean.shape != pred_std.shape or pred_mean.shape != target.shape:
+        msg = (
+            "arrays must have the same shape: "
+            f"{pred_mean.shape}, {pred_std.shape}, {target.shape}"
+        )
+        raise ValueError(msg)
     val = jnp.power(pred_mean - target, 2) / jnp.power(pred_std, 2)
     return jnp.mean(val) if averaged else jnp.sum(val)
 
 
-def chi_squared_zero(**predictions) -> Float:
+def chi_squared_zero(**predictions: Kwargs) -> Float:
     r"""Computes a calibration metric for a given set of predictions.
 
     The calculated metric is the ratio between the error of the prediction and
@@ -318,7 +353,7 @@ def chi_squared_zero(**predictions) -> Float:
 
     Args:
         **predictions: Keyword arguments representing the model predictions,
-        typically including mean, variance, and target.
+            typically including mean, variance, and target.
 
     Returns:
         The calibration metric value.
@@ -326,11 +361,14 @@ def chi_squared_zero(**predictions) -> Float:
     return jnp.abs(chi_squared(**predictions) - 1)
 
 
-def estimate_rmse(pred_mean: Array, target: Array, **kwargs) -> Float:
+def estimate_rmse(pred_mean: Array, target: Array, **kwargs: Kwargs) -> Float:
     r"""Estimate the root mean squared error (RMSE) for predictions.
 
     Mathematically:
-    $\text{RMSE} = \sqrt{\frac{1}{n} \sum_{i=1}^n (y_i - \hat{y}_i)^2}$.
+
+    $$
+    \text{RMSE} = \sqrt{\frac{1}{n} \sum_{i=1}^n (y_i - \hat{y}_i)^2}.
+    $$
 
     Args:
         pred_mean: Array of predicted means.
@@ -350,7 +388,7 @@ def crps_gaussian(
     target: Array,
     *,
     scaled: bool = True,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Float:
     """The negatively oriented continuous ranked probability score for Gaussians.
 
@@ -365,12 +403,18 @@ def crps_gaussian(
 
     Returns:
         The crps for the heldout set.
+
+    Raises:
+        ValueError: pred_mean, pred_std, and target have incompatible shapes.
     """
     del kwargs
 
     # Ensure input arrays are 1D and of the same shape
     if not (pred_mean.shape == pred_std.shape == target.shape):
-        msg = "arrays must have the same shape"
+        msg = (
+            "arrays must have the same shape: "
+            f"{pred_mean.shape}, {pred_std.shape}, {target.shape}"
+        )
         raise ValueError(msg)
 
     # Compute crps
@@ -396,7 +440,7 @@ def nll_gaussian(
     target: Array,
     *,
     scaled: bool = True,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Float:
     r"""Compute the negative log-likelihood (NLL) for a Gaussian distribution.
 
@@ -405,8 +449,11 @@ def nll_gaussian(
     (standard deviation).
 
     Mathematically:
-    $\text{NLL} = - \sum_{i=1}^n \log \left( \frac{1}{\sqrt{2\pi \sigma_i^2}}
-    \exp \left( -\frac{(y_i - \hat{y}_i)^2}{2\sigma_i^2} \right) \right)$.
+
+    $$
+    \text{NLL} = - \sum_{i=1}^n \log \left( \frac{1}{\sqrt{2\pi \sigma_i^2}}
+    \exp \left( -\frac{(y_i - \hat{y}_i)^2}{2\sigma_i^2} \right) \right).
+    $$
 
     Args:
         pred_mean: Array of predicted means for the dataset.
@@ -417,12 +464,18 @@ def nll_gaussian(
 
     Returns:
         The computed NLL value.
+
+    Raises:
+        ValueError: pred_mean, pred_std, and target have incompatible shapes.
     """
     del kwargs
 
     # Ensure input arrays are 1D and of the same shape
     if not (pred_mean.shape == pred_std.shape == target.shape):
-        msg = "arrays must have the same shape"
+        msg = (
+            "arrays must have the same shape: "
+            f"{pred_mean.shape}, {pred_std.shape}, {target.shape}"
+        )
         raise ValueError(msg)
 
     # Compute residuals
@@ -455,6 +508,215 @@ DEFAULT_REGRESSION_METRICS = [
         names=["rmse", "chi^2", "nll", "crps"],
         pred_mean="pred_mean",
         pred_std="pred_std",
+        target="target",
+    )
+]
+
+# --------------------------------------------------------------------------------
+# Low-rank output covariance metrics (FSP-style)
+# --------------------------------------------------------------------------------
+
+
+def compute_diagonal(pred: dict) -> Array:
+    """Return predictive variance from results dict."""
+    return pred["pred_var"]
+
+
+def compute_trace(pred: dict, **kwargs: Kwargs) -> Array:
+    """Trace from predictive variance (sum of diagonal).
+
+    Args:
+        pred: Results dict containing the predictive variance under the
+            `"pred_var"` key.
+        **kwargs: Additional arguments. May include `axis` to specify the
+            summation axis.
+
+    Returns:
+        Array: Trace of the predictive variance along the given axis.
+    """
+    axis = kwargs.get("axis", -1)
+    return jnp.sum(compute_diagonal(pred), axis=axis)
+
+
+def mean_eigenvalue(pred_cov_low_rank_terms, **kwargs):
+    del kwargs
+    # Extract values
+    eig_vals = pred_cov_low_rank_terms.S  # Lambda
+
+    return jnp.mean(jnp.abs(eig_vals))
+
+
+def low_rank_mahalanobis_distance_inverse_covariance(
+    pred_mean: Array,
+    target: Array,
+    pred_cov_low_rank_terms: LowRankTerms,
+    observation_noise: Array,
+    **kwargs: Kwargs,
+) -> Float:
+    """Compute sqrt((μ - t)^T Σ^-1 (μ - t)) under a low-rank covariance.
+
+    The covariance is given by Σ = U diag(S²) Uᵀ + σ² I using the Woodbury
+    identity. Here, `S` are the singular values of the scale, so the covariance
+    eigenvalues are `S²`.
+
+    Args:
+        pred_mean: Predictive mean with shape `(D,)`.
+        target: Target values with shape `(D,)`.
+        pred_cov_low_rank_terms: Low-rank terms representing the covariance.
+        observation_noise: Log-variance of the isotropic observation noise.
+        **kwargs: Additional arguments (ignored).
+
+    Returns:
+        Float: Mahalanobis distance under the low-rank covariance.
+    """
+    del kwargs
+    U = pred_cov_low_rank_terms.U  # (D, k)
+    S = pred_cov_low_rank_terms.S  # (k,)
+    sigma = jnp.exp(observation_noise)
+
+    v = (pred_mean - target).reshape(-1)
+    w = U.T @ v  # (k,)
+
+    # Σ^-1 = (1/σ²)[I - U diag(S²/(S²+σ²)) Uᵀ]
+    frac = (S**2) / (S**2 + sigma**2)
+    quad = (jnp.dot(v, v) - jnp.sum(frac * (w**2))) / (sigma**2)
+    return jnp.sqrt(jnp.maximum(quad, 0.0))
+
+
+def low_rank_log_determinant(
+    pred_cov_low_rank_terms: LowRankTerms, observation_noise: Array, **kwargs: Kwargs
+) -> Float:
+    """Compute log|Σ| for Σ = U diag(S²) Uᵀ + σ² I.
+
+    Args:
+        pred_cov_low_rank_terms: Low-rank terms representing the covariance.
+        observation_noise: Log-variance of the isotropic observation noise.
+        **kwargs: Additional arguments (ignored).
+
+    Returns:
+        Float: Log-determinant of the covariance matrix.
+    """
+    del kwargs
+    U = pred_cov_low_rank_terms.U
+    S = pred_cov_low_rank_terms.S
+    sigma = jnp.exp(observation_noise)
+    n, k = U.shape
+    eigenspace_logdet = jnp.sum(jnp.log(S**2 + sigma**2))
+    complement_logdet = (n - k) * jnp.log(sigma**2)
+    return eigenspace_logdet + complement_logdet
+
+
+def low_rank_nlpd_per_input(
+    pred_mean: Array,
+    target: Array,
+    pred_cov_low_rank_terms: LowRankTerms,
+    observation_noise: Array,
+    **kwargs: Kwargs,
+) -> dict[str, Float]:
+    """Negative log predictive density (vector form) using low-rank Σ.
+
+    Returns:
+        dict[str, Float]: Dictionary with `"nlpd_per_input"` and
+            `"mahalanobis_distance"`.
+    """
+    del kwargs
+
+    log_det_term = low_rank_log_determinant(
+        pred_cov_low_rank_terms=pred_cov_low_rank_terms,
+        observation_noise=observation_noise,
+    )
+    mah = low_rank_mahalanobis_distance_inverse_covariance(
+        pred_mean=pred_mean,
+        target=target,
+        pred_cov_low_rank_terms=pred_cov_low_rank_terms,
+        observation_noise=observation_noise,
+    ) / jnp.exp(observation_noise)
+    nlpd = 0.5 * (log_det_term + mah**2 + jnp.log(2 * jnp.pi))
+
+    return {"nlpd_per_input": nlpd, "mahalanobis_distance": mah}
+
+
+def low_rank_marginal_nlpd_per_input(
+    pred_mean: Array,
+    pred_var: Array,
+    target: Array,
+    observation_noise: Array,
+    **kwargs: Kwargs,
+) -> dict[str, Float]:
+    """Marginal NLPD using only the predictive variance and isotropic noise.
+
+    Returns:
+        dict[str, Float]: Dictionary with marginal NLPD and MSE per input.
+    """
+    del kwargs
+    mse_term = jnp.mean((pred_mean - target) ** 2)
+    trace_term = jnp.mean(pred_var)
+    sigma = jnp.exp(observation_noise)
+    log_term = 0.5 * jnp.log(2 * jnp.pi * sigma**2) / pred_var.shape[-1]
+    marginal_nlpd = 0.5 * (trace_term + mse_term / sigma**2 + log_term)
+
+    return {"marginal_nlpd_per_input": marginal_nlpd, "mse_per_input": mse_term}
+
+
+def cov_low_rank_approximation(results: dict, aux: dict, **kwargs: Kwargs):
+    """Approximate a dense predictive covariance with LowRankTerms via Lanczos.
+
+    Adds `low_rank_terms` to results if not present, and also returns
+    `pred_cov_low_rank_terms` for convenience. Eigenvalues are clipped and
+    square-rooted so that `S` represents scale singular values (matching the
+    convention used in low-rank pushforward), i.e., Σ ≈ U diag(S²) Uᵀ.
+
+    Returns:
+        tuple[dict, dict]: Updated `results` and `aux` dictionaries.
+    """
+    cov_pred = results.get("pred_cov")
+    if cov_pred is None:
+        return results, aux
+
+    if kwargs.get("fsp"):
+        results["pred_cov_low_rank_terms"] = aux["pred_cov_low_rank_terms"]
+        return results, aux
+
+    cov_rank = kwargs.get("cov_rank", kwargs.get("rank", 100))
+    lr = lanczos_lowrank(cov_pred, rank=int(cov_rank))
+
+    # Clip negatives and convert eigenvalues (λ) to singular values (S = sqrt(λ)).
+    S_cov = jnp.where(lr.S > 0.0, lr.S, 0.0)
+    lr_fixed = LowRankTerms(
+        U=lr.U, S=jnp.sqrt(S_cov), scalar=jnp.asarray(0.0, S_cov.dtype)
+    )
+
+    results.setdefault("low_rank_terms", lr_fixed)
+    results["pred_cov_low_rank_terms"] = lr_fixed
+    return results, aux
+
+
+LOW_RANK_REGRESSION_METRICS_DICT = {
+    "rmse": estimate_rmse,
+    "mahalanobis_distance": low_rank_mahalanobis_distance_inverse_covariance,
+    "log_determinant": low_rank_log_determinant,
+    "nlpd": low_rank_nlpd_per_input,
+    "marginal_nlpd": low_rank_marginal_nlpd_per_input,
+}
+
+LOW_RANK_REGRESSION_METRICS = [
+    apply_fns(
+        estimate_rmse,
+        low_rank_mahalanobis_distance_inverse_covariance,
+        low_rank_log_determinant,
+        low_rank_nlpd_per_input,
+        low_rank_marginal_nlpd_per_input,
+        names=[
+            "rmse",
+            "mahalanobis_distance",
+            "log_determinant",
+            "nlpd",
+            "marginal_nlpd",
+        ],
+        pred_mean="pred_mean",
+        pred_cov_low_rank_terms="low_rank_terms",
+        observation_noise="observation_noise",
+        pred_var="pred_var",
         target="target",
     )
 ]

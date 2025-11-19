@@ -1,10 +1,10 @@
 """All types defined in one place."""
 
-from collections.abc import Callable, Iterable, Mapping  # noqa: F401
-from typing import Any  # noqa: F401
+from collections.abc import Callable, Iterable, Mapping
+from typing import Any
 
 import jax
-from jaxtyping import Array, Float, Int, Num, PRNGKeyArray, PyTree  # noqa: F401
+from jaxtyping import Array, Float, Int, Num, PRNGKeyArray, PyTree
 
 from laplax.enums import CurvApprox
 
@@ -24,12 +24,14 @@ FlatParams = Num[Array, "P"]
 Params = PyTree[Num[Array, "..."]]
 ModelFn = Callable[..., Params]  # [InputArray, Params]
 CurvatureMV = Callable[[Params], Params]
+Kernel = Callable  # Kernel function (e.g., RBF kernel)
 
 # Data structures
 Data = Mapping[str, Num[Array, "..."]]  # {"input": ..., "target": ...}
 Layout = PyTree | int
 PriorArguments = Mapping[str, Array | float]
 PosteriorState = PyTree[Num[Array, "..."]]
+DataLoader = Iterable[Data]
 
 # Pushforward types
 DistState = dict[str, ...]  # type: ignore  # noqa: PGH003
@@ -43,3 +45,40 @@ DistState = dict[str, ...]  # type: ignore  # noqa: PGH003
 
 # Curvature types
 CurvatureKeyType = CurvApprox | str | None
+
+# Utility types
+Kwargs = Any
+
+# Declare all types as api
+__all__ = [
+    "Any",
+    "Array",
+    "Callable",
+    "CurvApprox",
+    "CurvatureKeyType",
+    "CurvatureMV",
+    "DType",
+    "Data",
+    "DistState",
+    "FlatParams",
+    "Float",
+    "InputArray",
+    "Int",
+    "Iterable",
+    "Kernel",
+    "KeyType",
+    "Kwargs",
+    "Layout",
+    "Mapping",
+    "ModelFn",
+    "Num",
+    "PRNGKeyArray",
+    "Params",
+    "PosteriorState",
+    "PredArray",
+    "PriorArguments",
+    "PyTree",
+    "PyTreeDef",
+    "ShapeType",
+    "TargetArray",
+]

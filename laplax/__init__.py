@@ -1,3 +1,24 @@
-"""Package for Laplace approximations in JAX."""
+"""Package for Laplace approximations in JAX.
 
-__version__ = "0.0.1"
+Avoid importing heavy submodules at package import time to keep import side
+effects minimal (e.g., JAX PRNG initialization). Expose top-level symbols via
+lazy attribute access.
+"""
+
+import importlib
+import importlib.metadata
+from typing import TYPE_CHECKING
+
+__all__ = ["calibration", "evaluation", "laplace"]
+__version__ = importlib.metadata.version("laplax")
+
+if TYPE_CHECKING:  # pragma: no cover - import for type checkers only
+    from .api import calibration, evaluation, laplace
+
+
+def __getattr__(name: str):  # pragma: no cover - trivial passthrough
+    if name in {"calibration", "evaluation", "laplace"}:
+        api_module = importlib.import_module("laplax.api")
+        return getattr(api_module, name)
+    msg = f"module 'laplax' has no attribute {name!r}"
+    raise AttributeError(msg)

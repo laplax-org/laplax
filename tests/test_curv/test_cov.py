@@ -11,8 +11,8 @@ from laplax.curv.cov import (
     CURVATURE_STATE_TO_COV,
     CURVATURE_STATE_TO_SCALE,
     CURVATURE_TO_POSTERIOR_STATE,
-    full_prec_to_scale,
 )
+from laplax.curv.full import full_prec_to_scale
 
 from .cases.covariance import case_posterior_covariance
 
@@ -26,13 +26,21 @@ def key(request) -> np.random.Generator:
 
 @pytest_cases.fixture
 def prior_prec():
-    """Fixture for precision matrix."""
+    """Fixture for precision matrix.
+
+    Returns:
+        A valid precision matrix.
+    """
     return jnp.array([[3.0, 0.5], [0.5, 2.0]])
 
 
 @pytest_cases.fixture
 def invalid_prec():
-    """Fixture for invalid precision matrix."""
+    """Fixture for invalid precision matrix.
+
+    Returns:
+        An invalid precision matrix.
+    """
     return jnp.array([[1.0, 2.0], [2.0, 1.0]])
 
 

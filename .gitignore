@@ -1,3 +1,19 @@
+# Experiments (ICML Workshop)
+logs/*
+checkpoints/*
+results/*
+wandb/*
+data/*
+
+
+
+# Temporary files (documentation)
+*.tmp
+
+# Pytest
+.pytest_cache/
+
+
 # Development
 local_*
 .ruff_cache
@@ -5,15 +21,23 @@ local_*
 .vscode
 
 # Extensions
-*.ipynb
+# *.ipynb
 *.txt
 *.egg-info
 *.pyc
+*.bak
 
 # Example notebooks
 *examples/data/*
+!examples/0000_tiny_laplax.ipynb
 !examples/0001_laplax_for_regression.ipynb
 !examples/0002_laplax_on_mnist.ipynb
+
+# Generated output files from examples
+*.png
+*.pdf
+*.pkl
+*.npz
 
 # Directories
 .tox
@@ -141,6 +165,7 @@ __pypackages__/
 # Celery stuff
 celerybeat-schedule
 celerybeat.pid
+
 
 # SageMath parsed files
 *.sage.py

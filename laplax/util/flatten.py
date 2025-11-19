@@ -15,7 +15,9 @@ from laplax.util.utils import identity
 # ---------------------------------------------------------------
 
 
-def cumsum(seq: Generator) -> list[int]:
+def cumsum(
+    seq: Generator,
+) -> list[int]:
     """Compute the cumulative sum of a sequence.
 
     This function takes a sequence of integers and returns a list of cumulative
@@ -26,17 +28,22 @@ def cumsum(seq: Generator) -> list[int]:
 
     Returns:
         A list where each element is the cumulative sum up to that point
-        in the input sequence.
+            in the input sequence.
     """
     total = 0
     return [total := total + ele for ele in seq]
 
 
-def full_flatten(tree: PyTree) -> Array:
+def full_flatten(
+    tree: PyTree,
+) -> Array:
     """Flatten a PyTree into a single 1D array.
 
     This function takes a PyTree and concatenates all its leaves into a single
     array.
+
+    Returns:
+        The flattened PyTree.
     """
     return jnp.concatenate([jnp.ravel(leaf) for leaf in jax.tree.flatten(tree)[0]])
 
@@ -74,7 +81,8 @@ def create_pytree_flattener(
         tree: A PyTree to derive the structure for flattening and unflattening.
 
     Returns:
-        tuple:
+        Tuple containing:
+
             - `flatten`: A function that flattens a PyTree into a 1D array.
             - `unflatten`: A function that reconstructs the PyTree from a 1D array.
     """
@@ -111,7 +119,8 @@ def create_partial_pytree_flattener(
         tree: A PyTree to derive the structure for flattening and unflattening.
 
     Returns:
-        tuple:
+        Tuple containing:
+
             - `flatten`: A function that flattens a PyTree into a 2D array.
             - `unflatten`: A function that reconstructs the PyTree from a 2D array.
     """
@@ -130,10 +139,13 @@ def create_partial_pytree_flattener(
         flat_vector_split = jnp.split(
             arr, cumsum(math.prod(sh[:-1]) for sh in all_shapes)[:-1], axis=0
         )  # Ignore column indices in shape.
+        # Use actual column dimension from input array, not original shapes
+        # This handles cases where SVD truncation reduces the rank
+        actual_cols = arr.shape[-1] if arr.ndim > 1 else 1
         return jax.tree_util.tree_unflatten(
             tree_def,
             [
-                flat_vector_split[i].reshape(all_shapes[i])
+                flat_vector_split[i].reshape(*all_shapes[i][:-1], actual_cols)
                 for i in range(len(flat_vector_split))
             ],
         )
@@ -141,7 +153,11 @@ def create_partial_pytree_flattener(
     return flatten, unflatten
 
 
-def unravel_array_into_pytree(pytree: PyTree, axis: int, arr: Array) -> PyTree:
+def unravel_array_into_pytree(
+    pytree: PyTree,
+    axis: int,
+    arr: Array,
+) -> PyTree:
     """Unravel an array into a PyTree with a specified structure.
 
     This function splits and reshapes an array to match the structure of a given
@@ -153,15 +169,9 @@ def unravel_array_into_pytree(pytree: PyTree, axis: int, arr: Array) -> PyTree:
         arr: The array to be unraveled into the PyTree structure.
 
     Returns:
-        PyTree: A PyTree with the specified structure, populated with parts of the
-        input array.
+        A PyTree with the specified structure, populated with parts of the input array.
 
-    Raises:
-        ValueError: If the input array cannot be split and reshaped to match the PyTree
-        structure.
-
-    Source: This function follows the implementation in
-        jax._src.api._unravel_array_into_pytree
+    This function follows the implementation in jax._src.api._unravel_array_into_pytree.
     """
     leaves, treedef = jax.tree.flatten(pytree)
     axis %= arr.ndim
@@ -193,7 +203,7 @@ def wrap_function(
         argnums: The index of the argument to be transformed by `input_fn`.
 
     Returns:
-        Callable: The wrapped function with input and output transformations applied.
+        The wrapped function with input and output transformations applied.
     """
 
     def wrapper(*args, **kwargs) -> Any:
@@ -232,7 +242,7 @@ def wrap_factory(
             (default: identity).
 
     Returns:
-        Callable: The wrapped factory that produces transformed callables.
+        The wrapped factory that produces transformed callables.
     """
 
     def wrapped_factory(*args, **kwargs) -> Callable:

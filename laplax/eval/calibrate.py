@@ -20,7 +20,7 @@ import numpy as np
 from loguru import logger
 
 from laplax.eval.metrics import chi_squared_zero
-from laplax.types import Array, Data, Float, PriorArguments
+from laplax.types import Array, Data, Float, Kwargs, PriorArguments
 
 
 def evaluate_for_given_prior_arguments(
@@ -28,7 +28,7 @@ def evaluate_for_given_prior_arguments(
     data: Data,
     set_prob_predictive: Callable,
     metric: Callable = chi_squared_zero,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Float:
     """Evaluate the metric for a given set of prior arguments and data.
 
@@ -89,9 +89,6 @@ def grid_search(
 
     Returns:
         The prior precision value that minimizes the objective function.
-
-    Raises:
-        ValueError: If the objective function returns invalid results.
     """
     results, prior_precs = [], []
     increasing_count = 0
@@ -149,7 +146,7 @@ def optimize_prior_prec(
     log_prior_prec_min: float = -5.0,
     log_prior_prec_max: float = 6.0,
     grid_size: int = 300,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Float:
     """Optimize prior precision using logarithmic grid search.
 

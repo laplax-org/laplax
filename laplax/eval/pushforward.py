@@ -1,3 +1,5 @@
+# pushforward.py
+
 """Pushforward Functions for Weight Space Uncertainty.
 
 This module provides functions to propagate uncertainty in weight space to
@@ -59,14 +61,27 @@ def set_get_weight_sample(key, mean_params, scale_mv, num_samples, **kwargs):
         **kwargs: Additional arguments, including:
             - `set_get_weight_sample_precompute`: Controls whether samples are
               precomputed.
+            - `fsp`: If present, uses a fixed sample path for weight sampling.
 
     Returns:
         Callable: A function that generates a specific weight sample by index.
     """
+    if "fsp" in kwargs:
+
+        def get_weight_sample(rank, dtype):
+            return jax.random.normal(key, shape=(num_samples, rank), dtype=dtype)
+
+        return get_weight_sample
+
     keys = jax.random.split(key, num_samples)
 
     def get_weight_sample(idx):
-        return util.tree.normal_like(keys[idx], mean=mean_params, scale_mv=scale_mv)
+        return util.tree.normal_like(
+            keys[idx],
+            mean=mean_params,
+            scale_mv=scale_mv,
+            rank=kwargs.get("rank"),  # If scale_mv assumes lower rank.
+        )
 
     return precompute_list(
         get_weight_sample,
@@ -156,6 +171,7 @@ def get_dist_state(
         key: PRNG key for generating random samples.
         **kwargs: Additional arguments, including:
             - `set_get_weight_sample_precompute`.
+            - `fsp`.
 
     Returns:
         DistState: A dictionary containing functions and parameters for uncertainty
@@ -181,8 +197,13 @@ def get_dist_state(
             )
             return vjp_fun(vector.reshape(out.shape))
 
-        dist_state["vjp"] = pf_vjp
-        dist_state["jvp"] = pf_jvp
+        batched_computation = kwargs.get("batched_computation", False)
+        if not batched_computation:
+            dist_state["vjp"] = pf_vjp
+            dist_state["jvp"] = pf_jvp
+        else:
+            dist_state["vjp"] = jax.vmap(pf_vjp, in_axes=(0, 0), out_axes=0)
+            dist_state["jvp"] = jax.vmap(pf_jvp, in_axes=(0, None), out_axes=0)
 
     if num_samples > 0:
         weight_sample_mean = (
@@ -195,6 +216,7 @@ def get_dist_state(
             mean_params=weight_sample_mean,
             scale_mv=posterior_state.scale_mv(posterior_state.state),
             num_samples=num_samples,
+            rank=posterior_state.rank,
             **kwargs,
         )
         dist_state["get_weight_samples"] = get_weight_samples
@@ -466,6 +488,7 @@ def set_output_mv(
         dict: A dictionary with:
             - `cov_mv`: Function for the output covariance matrix-vector product.
             - `jac_mv`: Function for the JVP with a fixed input.
+            - `low_rank_terms`: Low-rank terms from the posterior state.
     """
     cov_mv = posterior_state.cov_mv(posterior_state.state)
 
@@ -475,7 +498,13 @@ def set_output_mv(
     def output_jac_mv(vec: PredArray) -> PredArray:
         return jvp(input, vec)
 
-    return {"cov_mv": output_cov_mv, "jac_mv": output_jac_mv}
+    low_rank_terms = posterior_state.low_rank_terms
+
+    return {
+        "cov_mv": output_cov_mv,
+        "jac_mv": output_jac_mv,
+        "low_rank_terms": low_rank_terms,
+    }
 
 
 def lin_setup(
@@ -502,14 +531,13 @@ def lin_setup(
 
     Returns:
         tuple: Updated `results` and `aux`.
-    """
+    """  # noqa: DOC501
     del kwargs
 
     jvp = dist_state["jvp"]
     vjp = dist_state["vjp"]
     posterior_state = dist_state["posterior_state"]
 
-    # Check types (mainly needed for type checker)
     if not isinstance(posterior_state, Posterior):
         msg = "posterior state is not a Posterior type"
         raise TypeError(msg)
@@ -525,6 +553,7 @@ def lin_setup(
     mv = set_output_mv(posterior_state, input, jvp, vjp)
     aux["cov_mv"] = mv["cov_mv"]
     aux["jac_mv"] = mv["jac_mv"]
+    results["low_rank_terms"] = mv["low_rank_terms"]
 
     return results, aux
 
@@ -581,8 +610,14 @@ def lin_pred_var(
 
     pred_mean = results["pred_mean"]
 
-    # Compute diagonal as variance
-    results["pred_var"] = util.mv.diagonal(cov, layout=math.prod(pred_mean.shape))
+    pred_var = util.mv.diagonal(
+        cov,
+        layout=math.prod(pred_mean.shape),
+        mv_jittable=kwargs.get("mv_jittable", True),
+        low_rank=False,
+    )
+    results["pred_var"] = pred_var.reshape(pred_mean.shape)
+
     return results, aux
 
 
@@ -608,7 +643,7 @@ def lin_pred_std(
         results, aux = lin_pred_var(results, aux, **kwargs)
 
     var = results["pred_var"]
-    results["pred_std"] = util.tree.sqrt(var)
+    results["pred_std"] = util.tree.sqrt(jnp.abs(var))  # abs to avoid numerical issues
     return results, aux
 
 
@@ -632,7 +667,7 @@ def lin_pred_cov(
 
     Raises:
         TypeError: If the covariance matrix-vector product function is invalid.
-    """
+    """  # noqa: DOC502
     if "pred_mean" not in results:
         results, aux = lin_pred_mean(results, aux, **kwargs)
 
@@ -640,6 +675,33 @@ def lin_pred_cov(
     cov_mv = aux["cov_mv"]
 
     results["pred_cov"] = util.mv.to_dense(cov_mv, layout=pred_mean)
+    return results, aux
+
+
+def lin_pred_lsqrt_low_rank_cov(
+    results: dict[str, Array],
+    aux: dict[str, Any],
+    **kwargs,
+) -> tuple[dict[str, Array], dict[str, Any]]:
+    """Attach low-rank predictive info and cheap diagonal.
+
+    - Keeps `low_rank_terms` (computed in lin_setup when low_rank=True).
+    - Computes `pred_var` from the low-rank factors without densifying.
+      For Σ = U diag(S²) Uᵀ + σ² I with U ∈ R^{D×k},
+      diag(Σ) = σ² 1 + Σ_j (S_j U[:, j])².
+    """  # noqa: DOC201
+    if "pred_mean" not in results:
+        results, aux = lin_pred_mean(results, aux, **kwargs)
+
+    if "low_rank_terms" in results and "observation_noise" in results:
+        lr = results["low_rank_terms"]
+        sigma = jnp.exp(results["observation_noise"])
+        # sum over columns: (S * U)^2 for low-rank diag
+        U_scaled = lr.U * lr.S
+        pred_var = jnp.sum(U_scaled * U_scaled, axis=1) + sigma**2
+        pred_mean = results["pred_mean"]
+        results["pred_var"] = pred_var.reshape(pred_mean.shape)
+
     return results, aux
 
 
@@ -666,7 +728,7 @@ def lin_samples(
 
     Raises:
         TypeError: If the scale matrix or sampling functions are invalid.
-    """
+    """  # noqa: DOC502
     if "pred_mean" not in results:
         results, aux = lin_pred_mean(results, aux, **kwargs)
 
@@ -682,6 +744,59 @@ def lin_samples(
         batch_size=kwargs.get(
             "lin_samples_batch_size", kwargs.get("weight_batch_size")
         ),
+    )
+    return results, aux
+
+
+def fsp_samples(
+    results,
+    aux,
+    dist_state: DistState,
+    **kwargs,
+):
+    """Generate and store samples from the linearized distribution for FSP.
+
+    This function computes samples in the output space by applying the scale
+    matrix to weight samples generated from the posterior distribution.
+
+    Args:
+        results: Dictionary to store computed results.
+        aux: Auxiliary data containing the scale matrix function.
+        dist_state: Distribution state containing sampling functions and sample count.
+        **kwargs: Additional arguments, including:
+            - `lin_samples_batch_size`: Batch size for computing samples.
+
+    Returns:
+        tuple: Updated `results` and `aux`.
+
+    Raises:
+        TypeError: If the scale matrix or sampling functions are invalid.
+    """  # noqa: DOC502
+    if "pred_mean" not in results:
+        results, aux = lin_pred_mean(results, aux)
+
+    # Unpack arguments
+    jac_mv = aux["jac_mv"]
+    posterior: Posterior = dist_state["posterior_state"]
+    get_weight_samples = dist_state["get_weight_samples"]
+    rank = posterior.rank
+    batch_size = kwargs.get("compute_batch_size", rank)
+
+    scale_mv = posterior.scale_mv(posterior.state)
+    eye = jnp.eye(rank, dtype=results["pred_mean"].dtype)
+
+    def col_js(e_vec: Array) -> PredArray:
+        delta_w = scale_mv(e_vec)
+        return jac_mv(delta_w)
+
+    col_js = jax.jit(col_js)
+    JS_cols = jax.lax.map(col_js, eye.T, batch_size=batch_size)
+    JS = jnp.moveaxis(JS_cols, 0, -1)
+
+    eps = get_weight_samples(rank, results["pred_mean"].dtype)
+
+    results["samples"] = results["pred_mean"][None, ...] + jnp.einsum(
+        "sr,...r->s...", eps, JS
     )
     return results, aux
 
@@ -743,9 +858,18 @@ DEFAULT_LIN_FINALIZE_FNS = [
     lin_setup,
     lin_pred_mean,
     lin_pred_cov,
+    lin_pred_lsqrt_low_rank_cov,
     lin_pred_var,
     lin_pred_std,
     lin_samples,
+]
+
+# A leaner finalize chain for FSP-style metrics that avoids dense covariance.
+DEFAULT_LIN_FSP_FINALIZE_FNS = [
+    lin_setup,
+    lin_pred_mean,
+    lin_pred_lsqrt_low_rank_cov,
+    lin_pred_std,
 ]
 
 
@@ -783,12 +907,11 @@ def set_prob_predictive(
     """
 
     def prob_predictive(input: InputArray) -> dict[str, Array]:
-        # MAP prediction
         pred_map = model_fn(input=input, params=mean_params)
         aux = {"model_fn": model_fn, "mean_params": mean_params}
+
         results = {"map": pred_map}
 
-        # Compute prediction
         return finalize_fns(
             fns=pushforward_fns,
             results=results,
@@ -890,16 +1013,15 @@ def set_lin_pushforward(
             (default: `DEFAULT_LIN_FINALIZE`).
         **kwargs: Additional arguments passed to the pushforward functions, including:
             - `n_samples`: Number of samples for approximating uncertainty metrics.
+            - `batched_computation`: Whether to use batched computation.
             - `key`: PRNG key for generating random samples.
 
     Returns:
         Callable: A probabilistic predictive function that computes predictions
         and uncertainty metrics using a linearized approximation.
     """
-    # Create posterior state
     posterior_state = posterior_fn(prior_arguments, loss_scaling_factor)
 
-    # Posterior state to dist_state
     dist_state = get_dist_state(
         mean_params,
         model_fn,
@@ -908,7 +1030,6 @@ def set_lin_pushforward(
         **kwargs,
     )
 
-    # Set prob predictive
     prob_predictive = set_prob_predictive(
         model_fn=model_fn,
         mean_params=mean_params,
@@ -955,10 +1076,8 @@ def set_posterior_gp_kernel(
     Raises:
         ValueError: If `dense` is True but `output_layout` is not specified.
     """
-    # Create posterior state
     posterior_state = posterior_fn(prior_arguments, loss_scaling_factor)
 
-    # Posterior state to dist_state
     dist_state = get_dist_state(
         mean,
         model_fn,
@@ -968,7 +1087,6 @@ def set_posterior_gp_kernel(
         **kwargs,
     )
 
-    # Kernel mv
     def kernel_mv(
         vec: PredArray, x1: InputArray, x2: InputArray, dist_state: dict[str, Any]
     ) -> PredArray:

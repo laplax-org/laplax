@@ -26,26 +26,33 @@
 
 This module provides an implementation of the Locally Optimal Block
 Preconditioned Conjugate Gradient (LOBPCG) method for finding eigenvalues
-and eigenvectors of large Hermitian matrices. The implementation relies on the
+and eigenvectors of large Hermitian matrices.
+
+### This is a Wrapper
+
+The original source code can be found at:
+https://github.com/jax-ml/jax/blob/main/jax/experimental/sparse/linalg.py
+
+
+### What changes were made?
+
+The implementation relies on the
 JAX experimental sparse linear algebra package  but extends its functionality
 to support:
 
-1. **Mixed Precision Arithmetic:**
-   - Computations inside the algorithm (such as orthonormalization,
-     matrix-vector products, and eigenvalue updates) can be performed
-     using higher precision (e.g., `float64`), to maintain numerical
-     stability in critical steps.
-   - Matrix-vector products involving the operator `A` can be computed
-     in higher precision (e.g., `float32`) to reduce memory
-     usage and computation time.
+- **Mixed Precision Arithmetic**
+    - Computations inside the algorithm (such as orthonormalization, matrix-vector
+            products, and eigenvalue updates) can be performed using higher precision
+            (e.g., `float64`) to maintain numerical stability in critical steps.
+    - Matrix-vector products involving the operator `A` can be computed in lower
+            precision (e.g., `float32`) to reduce memory usage and computation time.
 
+- **Non-Jittable Operator Support**
+    - The implementation supports `A` as a non-jittable callable, enabling the use of
+            external libraries such as `scipy.sparse.linalg` for matrix-vector products.
+            This is essential for cases where `A` cannot be expressed using JAX
+            primitives (e.g., external libraries or precompiled solvers).
 
-2. **Non-Jittable Operator Support:**
-   - The implementation supports `A` as a non-jittable callable, enabling
-     the use of external libraries such as `scipy.sparse.linalg` for
-     matrix-vector products. This is essential for cases where `A`
-     cannot be expressed using JAX primitives (e.g., external libraries
-     or precompiled solvers).
 
 ### Why this Wrapper?
 
@@ -68,39 +75,40 @@ from jax.experimental.sparse.linalg import (
 )
 
 from laplax.curv.utils import LowRankTerms, get_matvec
-from laplax.types import Array, Callable, DType, Float, KeyType, Layout
+from laplax.types import Array, Callable, DType, Float, KeyType, Kwargs, Layout
 from laplax.util.flatten import wrap_function
 
 
 def lobpcg_standard(
-    A: Callable[[jax.Array], jax.Array],
-    X: jax.Array,
+    A: Callable[[Array], Array],
+    X: Array,
     m: int = 100,
     tol: Float | None = None,
     calc_dtype: DType = jnp.float64,
     a_dtype: DType = jnp.float32,
     *,
-    A_jittable: bool = True,
-) -> tuple[jax.Array, jax.Array, int]:
+    A_jit: bool = True,
+) -> tuple[Array, Array, int]:
     """Compute top-k eigenvalues using LOBPCG with mixed precision.
 
     Args:
-      A: callable representing the Hermitian matrix operation A(x).
-      X: initial guess (n, k) array.
+      A: callable representing the Hermitian matrix operation `A @ x`.
+      X: initial guess $(P, R)$ array.
       m: max iterations
       tol: tolerance for convergence
-      calc_dtype: dtype for internal calculations (float32 or float16)
-      a_dtype: dtype for A calls (e.g., float64 for stable matrix-vector products)
-      A_jittable: Then pass the computation to
+      calc_dtype: dtype for internal calculations (`float32` or `float64`)
+      a_dtype: dtype for A calls (e.g., `float64` for stable matrix-vector products)
+      A_jit: If True, then pass the computation to
             `jax.experimental.sparse.linalg.lobpcg_standard`.
 
     Returns:
         Tuple containing:
-            - Eigenvalues: Array of shape (k,)
-            - Eigenvectors: Array of shape (n, k)
+
+            - Eigenvalues: Array of shape $(R,)$
+            - Eigenvectors: Array of shape $(P, R)$
             - Iterations: Number of iterations performed
     """
-    if A_jittable:
+    if A_jit:
         return linalg.lobpcg_standard(A, X, m, tol)
 
     n, k = X.shape
@@ -233,7 +241,11 @@ def _extend_basis(X: Array, m: int, calc_dtype: DType) -> Array:
 
 
 def _project_out(basis: Array, U: Array) -> Array:
-    """Derives component of U in the orthogonal complement of basis."""
+    """Derives component of U in the orthogonal complement of basis.
+
+    Returns:
+        The needed component of U.
+    """
     for _ in range(2):
         U -= _mm(basis, _mm(basis.T, U))
         U = _orthonormalize(U, U.dtype)
@@ -255,6 +267,9 @@ def _rayleigh_ritz_orth(AS: Array, S: Array) -> tuple[Array, Array]:
 
     (1) `S.T A S V ~= diag(w) V`
     (2) `V` is standard orthonormal.
+
+    Returns:
+        The solution to the projected subsystem.
     """
     SAS = _mm(S.T, AS)
 
@@ -264,17 +279,17 @@ def _rayleigh_ritz_orth(AS: Array, S: Array) -> tuple[Array, Array]:
 
 
 def lobpcg_lowrank(
-    A,
+    A: Callable[[Array], Array] | Array,
     *,
-    key: KeyType,
+    key: KeyType | None = None,
     layout: Layout | None = None,
     rank: int = 20,
-    tol: float = 1e-6,
+    tol: Float = 1e-6,
     mv_dtype: DType | None = None,
     calc_dtype: DType = jnp.float64,
     return_dtype: DType | None = None,
-    mv_jittable: bool = True,
-    **kwargs,
+    mv_jit: bool = True,
+    **kwargs: Kwargs,
 ) -> LowRankTerms:
     r"""Compute a low-rank approximation using the LOBPCG algorithm.
 
@@ -284,40 +299,39 @@ def lobpcg_lowrank(
     (LOBPCG) algorithm to achieve efficient low-rank approximation, with support
     for mixed-precision arithmetic and optional JIT compilation.
 
-    Mathematically, the low-rank approximation seeks to find the leading eigenpairs
-    $(\lambda_i, u_i)$ such that:
-    $A u_i = \lambda_i u_i \quad \text{for } i = 1, \ldots, k$, where $A$ is the matrix
-    represented by the matrix-vector product `mv`, and $k$ is the number of eigenpairs.
+    Mathematically, the low-rank approximation seeks to find the leading $R$
+    eigenpairs $(\lambda_i, u_i)$ such that:
+    $A u_i = \lambda_i u_i \quad \text{for } i = 1, \ldots, R$, where $A$ is the matrix
+    represented by the matrix-vector product `mv`.
 
     Args:
         A: A callable that computes the matrix-vector product, representing the matrix
-            $A(x)$.
+            `A @ x`.
         key: PRNG key for random initialization of the search directions.
         layout: Dimension of the input/output space of the matrix.
-        rank: Number of leading eigenpairs to compute.
+        rank: Number of leading eigenpairs to compute. Defaults to $R=20$.
         tol: Convergence tolerance for the algorithm. If `None`, the machine epsilon
             for `calc_dtype` is used.
         mv_dtype: Data type for the matrix-vector product function.
         calc_dtype: Data type for internal calculations during LOBPCG.
         return_dtype: Data type for the final results.
-        mv_jittable: If `True`, enables JIT compilation for the matrix-vector product.
+        mv_jit: If `True`, enables JIT compilation for the matrix-vector product.
         **kwargs: Additional arguments (ignored).
 
     Returns:
-        LowRankTerms: A dataclass containing:
-            - `U`: Eigenvectors as a matrix of shape `(size, rank)`.
-            - `S`: Eigenvalues as an array of length `rank`.
+        A dataclass containing:
+
+            - `U`: Eigenvectors as a matrix of shape $(P, R)$.
+            - `S`: Eigenvalues as an array of length $(R,)$.
             - `scalar`: Scalar factor, initialized to 0.0.
 
-    Raises:
-        ValueError: If `size` is insufficient to perform the requested number of
-            iterations.
-
-    Notes:
-        - If the size of the matrix is small relative to `maxiter`, the number of
-          iterations is reduced to avoid over-computation.
+    Note:
+        - If `mv_jit` is `True`, the function will be vectorized over the data.
+        - If the size of the matrix is small relative to `rank`, the number of
+        iterations is reduced to avoid over-computation.
         - Mixed precision can significantly reduce memory usage, especially for large
-          matrices.
+            matrices. If `mv_dtype` is `None`, the data type is automatically determined
+            based on the `jax_enable_x64` configuration.
 
     Example:
         ```python
@@ -345,7 +359,7 @@ def lobpcg_lowrank(
     jax.config.update("jax_enable_x64", calc_dtype == jnp.float64)
 
     # Obtain a matrix-vector multiplication function.
-    matvec, size = get_matvec(A, layout=layout, jit=mv_jittable)
+    matvec, size = get_matvec(A, layout=layout, jit=mv_jit)
 
     # Obtain a matrix-matrix product function.
     matmat = jax.vmap(matvec, in_axes=-1, out_axes=-1)
@@ -365,6 +379,8 @@ def lobpcg_lowrank(
         )
 
     # Initialize random search directions
+    if key is None:
+        key = jax.random.key(0)
     X = jax.random.normal(key, (size, rank), dtype=calc_dtype)
 
     # Perform LOBPCG for eigenvalues and eigenvectors using the new wrapper
@@ -374,8 +390,8 @@ def lobpcg_lowrank(
         m=rank,
         tol=tol,
         calc_dtype=calc_dtype,
-        a_dtype=mv_dtype,  # type: ignore  # noqa: PGH003 # TODO(2bys): Fix this.
-        A_jittable=mv_jittable,
+        a_dtype=mv_dtype,  # type: ignore  # noqa: PGH003
+        A_jit=mv_jit,
     )
 
     # Prepare and convert the results

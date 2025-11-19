@@ -3,13 +3,22 @@ import math
 import jax
 import jax.numpy as jnp
 
+from laplax.types import Kwargs
+
 LAMBDA_0 = math.pi / 8
 
 
 def laplace_bridge(
-    mean: jax.Array, var: jax.Array, *, use_correction: bool
+    mean: jax.Array,
+    var: jax.Array,
+    *,
+    use_correction: bool,
 ) -> jax.Array:
-    """Laplace bridge approximation."""
+    """Laplace bridge approximation.
+
+    Returns:
+        The predictive.
+    """
     num_classes = mean.shape[1]
 
     if use_correction:
@@ -33,13 +42,19 @@ def laplace_bridge(
 
 
 def dirichlet_predictive(dirichlet_params: jax.Array) -> jax.Array:
-    """Predictive mean of Dirichlet distributions."""
+    """Predictive mean of Dirichlet distributions.
+
+    Returns:
+        The predictive.
+    """
     predictive = dirichlet_params / jnp.sum(dirichlet_params)  # [C, ...]
 
     return predictive
 
 
-def mean_field_0_predictive(mean: jax.Array, var: jax.Array, **kwargs) -> jax.Array:
+def mean_field_0_predictive(
+    mean: jax.Array, var: jax.Array, **kwargs: Kwargs
+) -> jax.Array:
     del kwargs
 
     predictive = jax.nn.softmax(mean / jnp.sqrt(1 + LAMBDA_0 * var))
@@ -47,7 +62,9 @@ def mean_field_0_predictive(mean: jax.Array, var: jax.Array, **kwargs) -> jax.Ar
     return predictive
 
 
-def mean_field_1_predictive(mean: jax.Array, var: jax.Array, **kwargs) -> jax.Array:
+def mean_field_1_predictive(
+    mean: jax.Array, var: jax.Array, **kwargs: Kwargs
+) -> jax.Array:
     del kwargs
 
     mu_diff = mean[None, :] - mean[:, None]  # [C, C]

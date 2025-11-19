@@ -3,10 +3,13 @@ import jax.numpy as jnp
 import pytest_cases
 
 
-def draw_random_onb(key, shape: tuple[int]) -> jnp.ndarray:
+def draw_random_onb(key, shape: tuple[int]) -> tuple[jax.Array, jax.Array]:
     """Draw a random orthogonal matrix and a random vector of singular values.
 
     Note: Shape (n, m) with n being the full rank and m being the low rank.
+
+    Returns:
+        A tuple of singular vectors and singular values.
     """
     keys = jax.random.split(key, 2)
     A = jax.random.uniform(keys[0], 2 * shape[:1])
