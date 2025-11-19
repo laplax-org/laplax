@@ -24,7 +24,8 @@ def transpose(linop, example_input):
 
 
 def fisher_structure_calculation(jvp, grads_vp, vec, M=1):
-    # nest matrix vector product calls
+    # nests matrix vector product calls as needed for fisher calculation
+
 
     vjp = transpose(jvp, vec)
     v_grads_p = transpose(grads_vp, jnp.zeros((M,1)))
@@ -87,12 +88,12 @@ def create_empirical_fisher_mv_without_data(
         # Forward pass
         f_evaluated = model_fn(input=x, params=params).squeeze()
         
-        # Construct jvp/vjp of forward pass
-        # atleast_2d ensures jvp/vjp have signature expected by fisher calculation
+        # Construct jvp of forward pass
+        # atleast_2d ensures jvp has signature expected by fisher calculation
         model_as_fn_of_params = lambda p: jnp.atleast_2d(model_fn(input=x, params=p))
         jvp = jax.linearize(model_as_fn_of_params, params)[1]
         
-        # Construct gradient mv and its transpose
+        # Construct gradient mv
         grad = loss_grad_fn(f_evaluated, y)[:,None]
         grad_mv = lambda v: grad @ v
 
@@ -229,23 +230,34 @@ def create_MC_fisher_mv_without_data(
         The function assumes as a default that the data has a batch dimension.
     """
 
+    loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, vmap_over_data=False)
+
+
+
+    def mc_fisher_single_datum(x,y, vec):
+        # Forward pass
+        f_evaluated = model_fn(input=x, params=params)
+        
+        # Construct jvp of forward pass
+        # atleast_2d ensures jvp has signature expected by fisher calculation
+        model_as_fn_of_params = lambda p: jnp.atleast_2d(model_fn(input=x, params=p))
+        jvp = jax.linearize(model_as_fn_of_params, params)[1]
+        
+        # Construct would-be-gradients mv
+        y_samples = sample_likelihood(loss_fn, f_evaluated, M)
+
+        #TODO: Is this (O,M) = loss_grad_fn( (O,1), (O,M) ) ?
+        grad = loss_grad_fn(f_evaluated, y_samples)
+        grad_mv = lambda v: grad @ v
+
+        fisher = fisher_structure_calculation(jvp, grad_mv, vec)
+        return mul(factor, fisher)
+
+
+
     def mc_fisher_mv(vec, data):
-
-        def fwd(p):
-            # Step 1: Single jvp for entire batch, if vmap_over_data is True
-            if vmap_over_data:
-                return jax.vmap(lambda x: model_fn(input=x, params=p))(data["input"])
-            return model_fn(input=data["input"], params=p)
-        
-        _, jvp = jax.linearize(fwd, params)
-        vjp = jax.linear_transpose(jvp, vec)
-
-        S_mv = would_be_grad_mv(loss_fn, mc_samples, data)
-        St_mv = jax.linear_transpose(S_mv, jnp.zeros(mc_samples))
-        
-        StJv = St_mv(Jv)[0]
-        SStJv = S_mv(StJv)
-        JtSStJv = vjp(SStJv)[0]
-        return mul(factor, JtSStJv)
-
+        if vmap_over_data:
+            return mean(jax.vmap(lambda datum: mc_fisher_single_datum(datum["input"],datum["target"], vec))(data), axis=0)
+        return mc_fisher_single_datum(data["input"], data["target"], vec)
+    
     return mc_fisher_mv
