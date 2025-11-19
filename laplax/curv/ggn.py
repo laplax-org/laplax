@@ -207,12 +207,13 @@ def create_loss_hessian_mv(
 # -----------------------------------------------------------------------------------
 
 
-@partial(jax.jit, static_argnames=("model_fn",))
+@partial(jax.jit, static_argnames=("model_fn", "batch_size"))
 def _jmp(
     model_fn: ModelFn,
     params: Params,
     x_context: InputArray,
     u: Params,
+    batch_size: Int = 8,
 ) -> PredArray:
     u_rank_major = jax.tree.map(lambda leaf: jnp.moveaxis(leaf, -1, 0), u)
 
@@ -231,18 +232,21 @@ def _jmp(
             )
             return tang
 
-        res_rank_major = jax.lax.map(jvp_single_rank, u_rank_major)
+        res_rank_major = jax.lax.map(
+            jvp_single_rank, u_rank_major, batch_size=batch_size
+        )
         return jnp.moveaxis(res_rank_major, 0, -1)
 
-    return jax.lax.map(jmp_single_x, x_context)
+    return jax.lax.map(jmp_single_x, x_context, batch_size=batch_size)
 
 
-@partial(jax.jit, static_argnames=("model_fn",))
+@partial(jax.jit, static_argnames=("model_fn", "batch_size"))
 def _jmp_fast(
     model_fn: ModelFn,
     params: Params,
     x_context: InputArray,
     u: Params,
+    batch_size: Int = 8,
 ) -> PredArray:
     u_rank_major = jax.tree.map(lambda leaf: jnp.moveaxis(leaf, -1, 0), u)
 
@@ -257,13 +261,14 @@ def _jmp_fast(
             out_axes=-1,
         )(u_rank_major)
 
-    return jax.lax.map(jmp_single_x, x_context)
+    return jax.lax.map(jmp_single_x, x_context, batch_size=batch_size)
 
 
 def create_jmp(
     model_fn: ModelFn,
     *,
     vmap_over_data: bool,
+    batch_size: Int = 8,
 ) -> Callable[[Params, InputArray, Params], PredArray]:
     """Create a JVP-based Jacobian-matrix product specialized to `model_fn`.
 
@@ -271,7 +276,7 @@ def create_jmp(
         Function that computes Jacobian-matrix products for the given model.
     """
     jmp_impl = _jmp_fast if vmap_over_data else _jmp
-    return partial(jmp_impl, model_fn=model_fn)
+    return partial(jmp_impl, model_fn=model_fn, batch_size=batch_size)
 
 
 def create_ggn_mv_without_data(
@@ -283,6 +288,7 @@ def create_ggn_mv_without_data(
     vmap_over_data: bool = True,
     loss_hessian_mv: Callable | None = None,
     fsp: bool = False,
+    batch_size: Int = 8,
 ) -> Callable[[Params, Data], Params]:
     r"""Create Generalized Gauss-Newton (GGN) matrix-vector productwithout fixed data.
 
@@ -309,6 +315,7 @@ def create_ggn_mv_without_data(
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         loss_hessian_mv: The loss Hessian matrix-vector product.
         fsp: Whether to use FSP (Function-Space Posterior) mode. Defaults to False.
+        batch_size: Batch size for JMP computation in FSP mode. Defaults to 8.
 
     Returns:
         A function that takes a vector and a batch of data, and computes the GGN
@@ -342,7 +349,9 @@ def create_ggn_mv_without_data(
 
         return mul(factor, arr)
 
-    jmp = create_jmp(model_fn=model_fn, vmap_over_data=vmap_over_data)
+    jmp = create_jmp(
+        model_fn=model_fn, vmap_over_data=vmap_over_data, batch_size=batch_size
+    )
 
     def ggn_fsp_mv(vec, data):
         x_context = data["context"]
