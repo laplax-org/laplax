@@ -57,6 +57,11 @@ def test_emp_fisher_on_quadratic_fn():
 
 
 def test_emp_fisher_on_quadratic_fn_2():
+    # Carefully crafted example where all shapes are different to simplify debugging
+    # n_data = 3
+    # fn_output_dim = 2
+    # Parameters: PyTree with two elements that are (2,)-tensors -> 4 params
+
     def fn(input, params):
         return jnp.array([
             params["a"][0] * input**2 + params["b"][0] * input,
@@ -64,12 +69,11 @@ def test_emp_fisher_on_quadratic_fn_2():
             ])
 
     data = {
-        "input": jnp.array([0.3,0.7,0.4,0.5]).reshape(4, 1),
-        "target": jnp.array([0.3,0.7,0.4,0.5,0.3,0.7,0.4,0.5]).reshape(4, 2),
+        "input": jnp.array([0.3,0.7,0.4]).reshape(3, 1),
+        "target": jnp.array([0.3,0.7,0.4,0.5,0.3,0.7]).reshape(3, 2),
     }
 
-    # TODO(Luis Gindorf): Find out why test fails for different parameters
-    best_params = {"a": jnp.array([1.0,2.0]), "b": jnp.array([-0.5,-1])}
+    best_params = {"a": jnp.array([1.7,2.3]), "b": jnp.array([-0.5,-1])}
 
     fisher_mv = create_empirical_fisher_mv(
         model_fn=fn,
@@ -94,20 +98,22 @@ def test_emp_fisher_on_quadratic_fn_2():
         df_db0 = input.item()
         df_da1 = input.item()
         df_db1 = 1
-        return jnp.array([[df_da0, df_db0, df_da1, df_db1]])
+        return jnp.array([[df_da0, 0.0, df_db0, 0.0],[0.0, df_da1, 0.0, df_db1]])
 
     def dc_df(f, y):  # For MSE Loss
-        return jnp.atleast_2d(2 * (f - y))
+        return 2 * (f - y)
 
     jacs = [df_dparams(x, best_params) for x in data["input"]]
     grads = [
-        dc_df(fn(x, best_params), y)
+        dc_df(fn(x, best_params).squeeze(), y.squeeze())
         for x, y in zip(data["input"], data["target"], strict=True)
     ]
+    print(jacs[0].shape)
+    print(grads[0].shape)
 
-    fisher_manual = jnp.sum(
+    fisher_manual = jnp.mean(
         jnp.array([
-            jac.T @ grad @ grad.T @ jac for jac, grad in zip(jacs, grads, strict=True)
+            jac.T @ grad[:,None] @ grad[None,:] @ jac for jac, grad in zip(jacs, grads, strict=True)
         ]),
         axis=0,
     )
