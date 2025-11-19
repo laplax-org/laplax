@@ -14,8 +14,7 @@ def test_emp_fisher_on_quadratic_fn():
         "target": jnp.array([1.25, -0.11, 0.79]).reshape(3, 1),
     }
 
-    # TODO(Luis Gindorf): Find out why test fails for different parameters
-    best_params = {"a": jnp.array(1.0), "b": jnp.array(-0.5), "c": jnp.array(-0.25)}
+    best_params = {"a": jnp.array(1.5), "b": jnp.array(-0.5), "c": jnp.array(-0.25)}
 
     fisher_mv = create_empirical_fisher_mv(
         model_fn=fn,
@@ -47,7 +46,7 @@ def test_emp_fisher_on_quadratic_fn():
         for x, y in zip(data["input"], data["target"], strict=True)
     ]
 
-    fisher_manual = jnp.sum(
+    fisher_manual = jnp.mean(
         jnp.array([
             jac.T @ grad @ grad.T @ jac for jac, grad in zip(jacs, grads, strict=True)
         ]),
