@@ -24,8 +24,20 @@ def transpose(linop, example_input):
 
 
 def fisher_structure_calculation(jvp, grads_vp, vec, M=1):
-    # nests matrix vector product calls as needed for fisher calculation
+    r"""
+    Nests matrix vector product calls as needed for fisher calculation
+    
+    Calculates 
+    $$
+    \text{jvp}^\top (\text{grads_vp}(\text{grads_vp}^\top(\text{jvp}(\text{vec}))))
+    $$
 
+    Args:
+        jvp: A callable mapping a PyTree to a vector of shape (O,)
+        grads_vp: A callable mapping a vector of shape ('M',) to  vector of shape (O,)
+        vec: A PyTree that can be consumed by jvp
+        M: Number of gradients provided
+    """
 
     vjp = transpose(jvp, vec)
     v_grads_p = transpose(grads_vp, jnp.zeros((M,1)))
