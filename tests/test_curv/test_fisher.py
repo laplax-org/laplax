@@ -1,8 +1,10 @@
+import jax
 import jax.numpy as jnp
 
 from laplax.curv.fisher import create_empirical_fisher_mv
 from laplax.enums import LossFn
 from laplax.util.flatten import full_flatten
+from laplax.curv.fisher import sample_likelihood
 
 
 def test_emp_fisher_on_quadratic_fn():
@@ -118,3 +120,10 @@ def test_emp_fisher_on_quadratic_fn_2():
     )
 
     assert jnp.allclose(fisher_laplax, fisher_manual)
+
+
+def test_MSE_samples():
+    key = jax.random.key(42)
+    f_n = jnp.arange(5, dtype=float)
+    samples = sample_likelihood(LossFn.MSE, f_n, 4, key)
+    assert samples.shape == (5,4)
