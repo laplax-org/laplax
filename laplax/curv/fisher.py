@@ -3,10 +3,9 @@
 from collections.abc import Callable
 
 import jax
-from loguru import logger
 
 from laplax.curv.loss import fetch_loss_gradient_fn
-from laplax.enums import FisherType, LossFn
+from laplax.enums import LossFn
 from laplax.types import (
     Data,
     Float,
@@ -17,8 +16,7 @@ from laplax.types import (
 from laplax.util.tree import mul
 
 
-def create_fisher_mv_without_data(
-    fishertype: FisherType | str,
+def create_empirical_fisher_mv_without_data(
     model_fn: ModelFn,
     params: Params,
     loss_fn: LossFn | str | Callable | None,
@@ -26,11 +24,8 @@ def create_fisher_mv_without_data(
     *,
     vmap_over_data: bool = True,
     loss_grad_fn: Callable | None = None,
-    mc_samples: Int | None = None,
 ) -> Callable[[Params, Data], Params]:
-    r"""Create Fisher matrix-vector product without fixed data.
-
-        Uses either Empirical or Monte Carlo approximation.
+    r"""Create empirical Fisher matrix-vector product without fixed data.
 
     #$$
     #\text{factor} \cdot \sum_i J_i^\top \nabla^2_{f(x_i, \theta), f(x_i, \theta)}
@@ -45,21 +40,16 @@ def create_fisher_mv_without_data(
         dataset, making it suitable for distributed or batched computations.
 
     Args:
-        fishertype: The type of Fisher approximation. Either 'EMPIRICAL' or 'MC'.
         model_fn: The model's forward pass function.
         params: Model parameters.
         loss_fn: Loss function to use for the Fisher computation.
         factor: Scaling factor for the Fisher computation.
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         loss_grad_fn: The loss gradient function.
-        mc_samples: Number of MC samples to use for fishertype 'MC'. Defaults to 1.
 
     Returns:
-        A function that takes a vector and a batch of data, and computes the Fisher
-        matrix-vector product.
-
-    Raises:
-        ValueError: When 'fishertype' is neither 'EMPIRICAL' nor 'MC'.
+        A function that takes a vector and a batch of data,
+        and computes the empirical Fisher matrix-vector product.
 
     Note:
         The function assumes as a default that the data has a batch dimension.
@@ -86,29 +76,10 @@ def create_fisher_mv_without_data(
         JtGGtJv = vjp(GGtJv)[0]
         return mul(factor, JtGGtJv)
 
-    def mc_fisher_mv(vec, data):
-        raise NotImplementedError
-
-    if fishertype == FisherType.EMPIRICAL:
-        if mc_samples is not None:
-            # This is not an error (does not prevent computation)
-            # but is likely unintended -> Warning
-            logger.warning(
-                "Param 'mc_samples' does not affect FisherType 'EMPIRICAL'."
-                "Did you mean 'MC'?"
-            )
-        return empirical_fisher_mv
-
-    if fishertype == FisherType.MC:
-        mc_samples = mc_samples or 1
-        return mc_fisher_mv
-
-    msg = f"Fisher Type must be either 'EMPIRICAL' or 'MC'. Got {fishertype} instead."
-    raise ValueError(msg)
+    return empirical_fisher_mv
 
 
-def create_fisher_mv(
-    fishertype: FisherType | str,
+def create_empirical_fisher_mv(
     model_fn: ModelFn,
     params: Params,
     data: Data,
@@ -118,17 +89,13 @@ def create_fisher_mv(
     num_total_samples: Int | None = None,
     vmap_over_data: bool = True,
     loss_grad_fn: Callable | None = None,
-    mc_samples: Int | None = None,
 ) -> Callable[[Params], Params]:
-    r"""Creates the Fisher matrix-vector product with data.
-
-    Uses either Empirical or Monte Carlo approximation.
+    r"""Creates the empirical Fisher matrix-vector product with data.
 
     This function hardcodes the dataset, making it ideal for scenarios where the dataset
     remains fixed.
 
     Args:
-        fishertype: The type of Fisher approximation. Either 'EMPIRICAL' or 'MC'.
         model_fn: The model's forward pass function.
         params: Model parameters.
         data: A batch of input and target data.
@@ -145,11 +112,10 @@ def create_fisher_mv(
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         loss_grad_fn: The loss gradient function.
             If not provided, it is computed using the 'loss_fn'.
-        mc_samples: Number of MC samples to use for fishertype 'MC'. Defaults to 1.
 
     Returns:
         A function that takes a vector and computes
-        the (empirical/Monte-Carlo) Fisher matrix-vector product for the given data.
+        the empirical Fisher matrix-vector product for the given data.
 
     Note:
         The function assumes as a default that the data has a batch dimension.
@@ -162,15 +128,13 @@ def create_fisher_mv(
 
     curv_scaling_factor = num_total_samples / num_curv_samples
 
-    fisher_mv = create_fisher_mv_without_data(
-        fishertype=fishertype,
+    fisher_mv = create_empirical_fisher_mv_without_data(
         model_fn=model_fn,
         params=params,
         loss_fn=loss_fn,
         factor=curv_scaling_factor,
         vmap_over_data=vmap_over_data,
         loss_grad_fn=loss_grad_fn,
-        mc_samples=mc_samples,
     )
 
     def wrapped_fisher_mv(vec: Params) -> Params:

@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 
-from laplax.curv.fisher import create_fisher_mv
-from laplax.enums import FisherType, LossFn
+from laplax.curv.fisher import create_empirical_fisher_mv
+from laplax.enums import LossFn
 from laplax.util.flatten import full_flatten
 
 
@@ -17,8 +17,7 @@ def test_emp_fisher_on_quadratic_fn():
     # TODO(Luis Gindorf): Find out why test fails for different parameters
     best_params = {"a": jnp.array(1.0), "b": jnp.array(-0.5), "c": jnp.array(-0.25)}
 
-    fisher_mv = create_fisher_mv(
-        FisherType.EMPIRICAL,
+    fisher_mv = create_empirical_fisher_mv(
         model_fn=fn,
         params=best_params,
         data=data,
