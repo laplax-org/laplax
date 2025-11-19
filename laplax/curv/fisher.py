@@ -16,6 +16,25 @@ from laplax.types import (
 )
 from laplax.util.tree import mul,mean
 
+def transpose(linop, example_input):
+    # Simple wrapper around jax.linear_transpose to 
+    # directly return transpose of linop with single argument 
+    t = jax.linear_transpose(linop, example_input)
+    return lambda v: t(v)[0]
+
+
+def fisher_structure_calculation(jvp, grads_vp, vec, M=1):
+    # nest matrix vector product calls
+
+    vjp = transpose(jvp, vec)
+    v_grads_p = transpose(grads_vp, jnp.zeros((M,1)))
+
+    Jv = jvp(vec)
+    GtJv = v_grads_p(Jv)
+    GGtJv = grads_vp(GtJv)
+    JtGGtJv = vjp(GGtJv)
+    return JtGGtJv
+
 
 def create_empirical_fisher_mv_without_data(
     model_fn: ModelFn,
@@ -62,11 +81,6 @@ def create_empirical_fisher_mv_without_data(
 
     loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, vmap_over_data=False)
 
-    def transpose(linop, example_input):
-        # SImple wrapper around jax.linear_transpose to 
-        # directly return transpose of linop with single argument 
-        t = jax.linear_transpose(linop, example_input)
-        return lambda v: t(v)[0]
 
 
     def emp_fisher_single_datum(x,y, vec):
@@ -77,19 +91,13 @@ def create_empirical_fisher_mv_without_data(
         # atleast_2d ensures jvp/vjp have signature expected by fisher calculation
         model_as_fn_of_params = lambda p: jnp.atleast_2d(model_fn(input=x, params=p))
         jvp = jax.linearize(model_as_fn_of_params, params)[1]
-        vjp = transpose(jvp, vec)
         
         # Construct gradient mv and its transpose
         grad = loss_grad_fn(f_evaluated, y)[:,None]
         grad_mv = lambda v: grad @ v
-        grad_T_mv = transpose(grad_mv, jnp.zeros((1,1)))
 
-        # nest matrix vector product calls
-        Jv = jvp(vec)
-        GtJv = grad_T_mv(Jv)
-        GGtJv = grad_mv(GtJv)
-        JtGGtJv = vjp(GGtJv)
-        return mul(factor, JtGGtJv)
+        fisher = fisher_structure_calculation(jvp, grad_mv, vec)
+        return mul(factor, fisher)
 
     def empirical_fisher_mv(vec, data):
         if vmap_over_data:
