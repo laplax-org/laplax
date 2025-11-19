@@ -273,7 +273,7 @@ def create_MC_fisher_mv_without_data(
 
 
 def sample_likelihood(loss_fn, f_n, mc_samples, key):
-    # sample M values $\tilde{y} from e^{-loss_fn(y, f_n)}$
+    # sample M values $\tilde{y} from e^{-\text{loss_fn}(y, f_n)}$
     if loss_fn is LossFn.MSE:
         unit_samples = jax.random.normal(key, shape=(f_n.shape[0], mc_samples))
         return unit_samples + f_n[:, None]
