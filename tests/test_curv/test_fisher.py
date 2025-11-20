@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from laplax.curv.fisher import create_empirical_fisher_mv, sample_likelihood
+from laplax.curv.fisher import create_empirical_fisher_mv, sample_likelihood, create_MC_fisher_mv
 from laplax.enums import LossFn
 from laplax.util.flatten import full_flatten
 
@@ -66,7 +66,7 @@ def test_emp_fisher_on_quadratic_fn_2():
         return jnp.array([
             params["a"][0] * input**2 + params["b"][0] * input,
             params["a"][1] * input + params["b"][1],
-        ])
+        ]).squeeze()
 
     data = {
         "input": jnp.array([0.3, 0.7, 0.4]).reshape(3, 1),
@@ -139,3 +139,36 @@ def test_CE_samples():
     f_n = jnp.arange(10, dtype=float)
     samples = sample_likelihood(LossFn.CROSS_ENTROPY, f_n, 4, key)
     assert samples.shape == (1, 4)
+
+
+def test_MC_fisher():
+    def fn(input, params):
+        return jnp.array([params["a"][0] * input**3, params["a"][1]**2 *input]).squeeze()
+
+    data = {
+        "input": jnp.array([-1.0, 0.7, 1.3]).reshape(3, 1),
+        "target": jnp.array([1.25, -0.11, 0.79, 2.4, 5.3, -2.6]).reshape(3, 2),
+    }
+
+    params = {"a": jnp.array([1.5, 0.2])}
+
+    key = jax.random.PRNGKey(42)
+
+    fisher_mv = create_MC_fisher_mv(
+        model_fn=fn,
+        params=params,
+        data=data,
+        loss_fn=LossFn.MSE,
+        vmap_over_data=True,
+        mc_samples=7,
+        key = key,
+    )
+
+    fisher_row_1 = full_flatten(fisher_mv({"a": jnp.array([1.0, 0.0])}))
+    fisher_row_2 = full_flatten(fisher_mv({"a": jnp.array([0.0, 1.0])}))
+
+    fisher_laplax = jnp.stack((fisher_row_1, fisher_row_2))
+    print(fisher_laplax)
+
+    assert False
+

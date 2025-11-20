@@ -34,8 +34,8 @@ def fisher_structure_calculation(jvp, grads_vp, vec, M=1):
     $$
 
     Args:
-        jvp: A callable mapping a PyTree to a vector of shape (O,)
-        grads_vp: A callable mapping a vector of shape ('M',) to  vector of shape (O,)
+        jvp: A callable mapping a PyTree to a vector of shape (O)
+        grads_vp: A callable mapping a vector of shape ('M') to  vector of shape (O)
         vec: A PyTree that can be consumed by jvp
         M: Number of gradients provided
 
@@ -43,7 +43,7 @@ def fisher_structure_calculation(jvp, grads_vp, vec, M=1):
         The unscaled fisher matrix vector poduct for one datum
     """
     vjp = transpose(jvp, vec)
-    v_grads_p = transpose(grads_vp, jnp.zeros((M, 1)))
+    v_grads_p = transpose(grads_vp, jnp.zeros(M))
 
     Jv = jvp(vec)
     GtJv = v_grads_p(Jv)
@@ -100,15 +100,14 @@ def create_empirical_fisher_mv_without_data(
         def emp_fisher_single_datum(datum):
             x, y = datum["input"], datum["target"]
             # Forward pass
-            f_evaluated = model_fn(input=x, params=params).squeeze()
+            f_evaluated = model_fn(input=x, params=params)
 
             # Construct jvp of forward pass
-            # atleast_2d ensures jvp has signature expected by fisher calculation
-            jvp = jax.linearize(lambda p: jnp.atleast_2d(model_fn(x, p)), params)[1]
+            jvp = jax.linearize(lambda p: model_fn(x, p), params)[1]
 
             # Construct gradient mv
             grad = loss_grad_fn(f_evaluated, y)[:, None]
-
+            print(grad)
             fisher = fisher_structure_calculation(jvp, lambda v: grad @ v, vec)
             return mul(factor, fisher)
 
@@ -252,16 +251,13 @@ def create_MC_fisher_mv_without_data(
             f_evaluated = model_fn(input=x, params=params)
 
             # Construct jvp of forward pass
-            # atleast_2d ensures jvp has signature expected by fisher calculation
-            jvp = jax.linearize(lambda p: jnp.atleast_2d(model_fn(x, p)), params)[1]
+            jvp = jax.linearize(lambda p: model_fn(x, p), params)[1]
 
             # Construct would-be-gradients mv
             y_samples = sample_likelihood(loss_fn, f_evaluated, mc_samples, key)
-
-            # TODO @Luis: Is this (O,M) = loss_grad_fn( (O,1), (O,M) ) ?
-            grad = loss_grad_fn(f_evaluated, y_samples)
-
-            fisher = fisher_structure_calculation(jvp, lambda v: grad @ v, vec)
+            grad = loss_grad_fn(f_evaluated[:,None], y_samples)
+    
+            fisher = fisher_structure_calculation(jvp, lambda v: grad @ v, vec, M=mc_samples)
             return mul(factor, fisher)
 
         if vmap_over_data:
