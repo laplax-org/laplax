@@ -154,21 +154,41 @@ def test_MC_fisher():
 
     key = jax.random.PRNGKey(42)
 
-    fisher_mv = create_MC_fisher_mv(
+    mc_fisher_mv = create_MC_fisher_mv(
         model_fn=fn,
         params=params,
         data=data,
         loss_fn=LossFn.MSE,
         vmap_over_data=True,
-        mc_samples=7,
+        mc_samples=200,
         key = key,
     )
 
-    fisher_row_1 = full_flatten(fisher_mv({"a": jnp.array([1.0, 0.0])}))
-    fisher_row_2 = full_flatten(fisher_mv({"a": jnp.array([0.0, 1.0])}))
+    mc_fisher_row_1 = full_flatten(mc_fisher_mv({"a": jnp.array([1.0, 0.0])}))
+    mc_fisher_row_2 = full_flatten(mc_fisher_mv({"a": jnp.array([0.0, 1.0])}))
 
-    fisher_laplax = jnp.stack((fisher_row_1, fisher_row_2))
-    print(fisher_laplax)
+    mc_fisher = jnp.stack((mc_fisher_row_1, mc_fisher_row_2))
 
+    emp_fisher_mv = create_empirical_fisher_mv(
+        model_fn=fn,
+        params=params,
+        data=data,
+        loss_fn=LossFn.MSE,
+        vmap_over_data=True,
+    )
+
+    emp_fisher_row_1 = full_flatten(emp_fisher_mv({"a": jnp.array([1.0, 0.0])}))
+    emp_fisher_row_2 = full_flatten(emp_fisher_mv({"a": jnp.array([0.0, 1.0])}))
+
+    emp_fisher = jnp.stack((emp_fisher_row_1, emp_fisher_row_2))
+
+    print(mc_fisher)
+    print(emp_fisher)
+    print(jnp.linalg.norm(mc_fisher - emp_fisher))
     assert False
+
+
+
+    
+
 
