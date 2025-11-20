@@ -255,7 +255,7 @@ def create_MC_fisher_mv_without_data(
             grad = loss_grad_fn(f_x[:,None], y_samples)
     
             fisher = fisher_structure_calculation(jvp, lambda v: grad @ v, vec, M=mc_samples)
-            return mul(factor, fisher)
+            return mul(factor/mc_samples, fisher)
 
         if vmap_over_data:
             vmap = jax.vmap(mc_fisher_single_datum)(data)
