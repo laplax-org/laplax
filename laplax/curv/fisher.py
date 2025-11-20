@@ -99,21 +99,20 @@ def create_empirical_fisher_mv_without_data(
     def empirical_fisher_mv(vec, data):
         def emp_fisher_single_datum(datum):
             x, y = datum["input"], datum["target"]
-            # Forward pass
-            f_evaluated = model_fn(input=x, params=params)
 
-            # Construct jvp of forward pass
-            jvp = jax.linearize(lambda p: model_fn(x, p), params)[1]
+            # Calculate forward pass and its derivative
+            f_x, jvp = jax.linearize(lambda p: model_fn(x, p), params)
 
             # Construct gradient mv
-            grad = loss_grad_fn(f_evaluated, y)[:, None]
-            print(grad)
+            grad = loss_grad_fn(f_x, y)[:, None]
+            
+            # Pass to fisher calculation
             fisher = fisher_structure_calculation(jvp, lambda v: grad @ v, vec)
             return mul(factor, fisher)
 
         if vmap_over_data:
             vmap = jax.vmap(emp_fisher_single_datum)(data)
-            return mean(vmap, axis=0)
+            return mean(vmap, axis=0) # Mean over vmap batch dimension
         return emp_fisher_single_datum(data, vec)
 
     return empirical_fisher_mv
@@ -246,23 +245,21 @@ def create_MC_fisher_mv_without_data(
 
     def mc_fisher_mv(vec, data):
         def mc_fisher_single_datum(datum):
-            x = datum["input"]  # actual y never used for MC Fisher
-            # Forward pass
-            f_evaluated = model_fn(input=x, params=params)
-
-            # Construct jvp of forward pass
-            jvp = jax.linearize(lambda p: model_fn(x, p), params)[1]
+            x = datum["input"]  # y is never used for MC Fisher
+            
+            # Calculate forward pass and its derivative
+            f_x, jvp = jax.linearize(lambda p: model_fn(x, p), params)
 
             # Construct would-be-gradients mv
-            y_samples = sample_likelihood(loss_fn, f_evaluated, mc_samples, key)
-            grad = loss_grad_fn(f_evaluated[:,None], y_samples)
+            y_samples = sample_likelihood(loss_fn, f_x, mc_samples, key)
+            grad = loss_grad_fn(f_x[:,None], y_samples)
     
             fisher = fisher_structure_calculation(jvp, lambda v: grad @ v, vec, M=mc_samples)
             return mul(factor, fisher)
 
         if vmap_over_data:
             vmap = jax.vmap(mc_fisher_single_datum)(data)
-            return mean(vmap, axis=0)
+            return mean(vmap, axis=0) # Mean over vmap batch dimension
         return mc_fisher_single_datum(data["input"], data["target"], vec)
 
     return mc_fisher_mv
