@@ -25,7 +25,7 @@ def transpose(linop, example_input):
     return lambda v: t(v)[0]
 
 
-def fisher_structure_calculation(jvp, grads_vp, vec, M=1):
+def fisher_calculation(jvp, grads_vp, vec, M=1):
     r"""Nests matrix vector product calls as needed for fisher calculation.
 
     Calculates
@@ -107,12 +107,12 @@ def create_empirical_fisher_mv_without_data(
             grad = loss_grad_fn(f_x, y)[:, None]
 
             # Pass to fisher calculation
-            fisher = fisher_structure_calculation(jvp, lambda v: grad @ v, vec)
+            fisher = fisher_calculation(jvp, lambda v: grad @ v, vec)
             return mul(factor, fisher)
 
         if vmap_over_data:
             vmap = jax.vmap(emp_fisher_single_datum)(data)
-            return mean(vmap, axis=0) # Mean over vmap batch dimension
+            return mean(vmap, axis=0)  # Mean over vmap batch dimension
         return emp_fisher_single_datum(data, vec)
 
     return empirical_fisher_mv
@@ -246,19 +246,23 @@ def create_MC_fisher_mv_without_data(
     def mc_fisher_mv(vec, data):
         def mc_fisher_single_datum(datum):
             x = datum["input"]  # y is never used for MC Fisher
-            
+
             # Calculate forward pass and its derivative
             f_x, jvp = jax.linearize(lambda p: model_fn(x, p), params)
 
             # Construct would-be-gradients mv
             y_samples = sample_likelihood(loss_fn, f_x, mc_samples, key)
-            would_be_grads = loss_grad_fn(f_x[:,None], y_samples)
-            fisher = fisher_structure_calculation(jvp, lambda v: would_be_grads @ v, vec, M=mc_samples)
-            return mul(factor/mc_samples, fisher)
+            would_be_grads = loss_grad_fn(f_x[:, None], y_samples)
+
+            def would_be_grads_mv(vec):
+                return would_be_grads @ vec
+
+            fisher = fisher_calculation(jvp, would_be_grads_mv, vec, M=mc_samples)
+            return mul(factor / mc_samples, fisher)
 
         if vmap_over_data:
             vmap = jax.vmap(mc_fisher_single_datum)(data)
-            return mean(vmap, axis=0) # Mean over vmap batch dimension
+            return mean(vmap, axis=0)  # Mean over vmap batch dimension
         return mc_fisher_single_datum(data["input"], data["target"], vec)
 
     return mc_fisher_mv
@@ -287,7 +291,6 @@ def create_MC_fisher_mv(
     num_total_samples: Int | None = None,
     vmap_over_data: bool = True,
     mc_samples: Int | None = 1,
-
 ) -> Callable[[Params], Params]:
     r"""Create Monte-Carlo approximated Fisher matrix-vector product without fixed data.
 
@@ -329,7 +332,7 @@ def create_MC_fisher_mv(
         mc_samples: Number of MC samples to use. Defaults to 1.
 
     Returns:
-        A function that takes a vector and computes 
+        A function that takes a vector and computes
         the Monte-Carlo Fisher matrix-vector product.
 
     Note:
@@ -357,4 +360,3 @@ def create_MC_fisher_mv(
         return fisher_mv(vec, data)
 
     return wrapped_fisher_mv
-

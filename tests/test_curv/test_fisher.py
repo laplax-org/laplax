@@ -1,7 +1,11 @@
 import jax
 import jax.numpy as jnp
 
-from laplax.curv.fisher import create_empirical_fisher_mv, sample_likelihood, create_MC_fisher_mv
+from laplax.curv.fisher import (
+    create_empirical_fisher_mv,
+    create_MC_fisher_mv,
+    sample_likelihood,
+)
 from laplax.enums import LossFn
 from laplax.util.flatten import full_flatten
 
@@ -142,9 +146,11 @@ def test_CE_samples():
 
 
 def test_MC_fisher():
-
     def fn(input, params):
-        return jnp.array([params["a"][0] * input**3, params["a"][1]**2 *input]).squeeze()
+        return jnp.array([
+            params["a"][0] * input**3,
+            params["a"][1] ** 2 * input,
+        ]).squeeze()
 
     data = {
         "input": jnp.array([-1.0, 0.7, 1.3]).reshape(3, 1),
@@ -162,7 +168,7 @@ def test_MC_fisher():
         loss_fn=LossFn.MSE,
         vmap_over_data=True,
         mc_samples=10,
-        key = key,
+        key=key,
     )
 
     mc_fisher_row_1 = full_flatten(mc_fisher_mv({"a": jnp.array([1.0, 0.0])}))
@@ -183,17 +189,12 @@ def test_MC_fisher():
 
     emp_fisher = jnp.stack((emp_fisher_row_1, emp_fisher_row_2))
 
-    assert jnp.linalg.norm(mc_fisher - emp_fisher) < 100 # Very large, see comment below
-    # Current behaviour: When params are close to best params (i.e. f(x) matches true y),
-    # the emp_fisher matrix vanishes, and the mc fisher does this too for small mc_samples.
+    assert jnp.linalg.norm(mc_fisher - emp_fisher) < 100  # Very large, see comment
+    # Current behaviour: When params are close to best params
+    # (i.e. f(x) matches true y), the emp_fisher matrix vanishes,
+    # and the mc fisher does this too for small mc_samples.
     # For larger mc_samples, it diverges.
-    # If params are sub-optimal, the mc fisher converges to a value that is distinct from
-    # that of the emp fisher. This is because the mean of the MC samples for y converges to 
-    # f(x), which is different from y in this case.
-
-
-
-
-    
-
-
+    # If params are sub-optimal, the mc fisher converges to a value
+    # that is distinct from that of the emp fisher. This is because
+    # the mean of the MC samples for y converges to f(x),
+    # which is different from y in this case.
