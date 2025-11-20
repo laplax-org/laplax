@@ -105,7 +105,7 @@ def create_empirical_fisher_mv_without_data(
 
             # Construct gradient mv
             grad = loss_grad_fn(f_x, y)[:, None]
-            
+
             # Pass to fisher calculation
             fisher = fisher_structure_calculation(jvp, lambda v: grad @ v, vec)
             return mul(factor, fisher)
@@ -252,9 +252,8 @@ def create_MC_fisher_mv_without_data(
 
             # Construct would-be-gradients mv
             y_samples = sample_likelihood(loss_fn, f_x, mc_samples, key)
-            grad = loss_grad_fn(f_x[:,None], y_samples)
-    
-            fisher = fisher_structure_calculation(jvp, lambda v: grad @ v, vec, M=mc_samples)
+            would_be_grads = loss_grad_fn(f_x[:,None], y_samples)
+            fisher = fisher_structure_calculation(jvp, lambda v: would_be_grads @ v, vec, M=mc_samples)
             return mul(factor/mc_samples, fisher)
 
         if vmap_over_data:
