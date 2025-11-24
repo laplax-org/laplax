@@ -269,19 +269,19 @@ def create_MC_fisher_mv_without_data(
 
 
 def sample_likelihood(loss_fn, f_n, mc_samples, key):
-    # sample M values $\tilde{y} from e^{-\text{loss_fn}(y, f_n)}$
-    if loss_fn is LossFn.MSE:
+    # sample mc_samples values $\tilde{y} from e^{-\text{loss_fn}(y, f_n)}$
+    if loss_fn == LossFn.MSE:
         unit_samples = jax.random.normal(key, shape=(f_n.shape[0], mc_samples))
         return unit_samples + f_n[:, None]
 
-    if loss_fn is LossFn.CROSS_ENTROPY:
+    if loss_fn == LossFn.CROSS_ENTROPY:
         return jax.random.categorical(key, f_n, shape=(1, mc_samples), replace=True)
 
-    if loss_fn is LossFn.BINARY_CROSS_ENTROPY:
+    if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
         bool_samples = jax.random.bernoulli(key, f_n, shape=(1, mc_samples))
         return jnp.astype(bool_samples, jnp.float32)
 
-        msg = f"Unsupported LossFn {loss_fn} to sample from."
+    msg = f"Unsupported LossFn {loss_fn} to sample from."
     raise ValueError(msg)
 
 
