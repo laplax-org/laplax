@@ -144,6 +144,12 @@ def test_CE_samples():
     samples = sample_likelihood(LossFn.CROSS_ENTROPY, f_n, 4, key)
     assert samples.shape == (1, 4)
 
+def test_BCE_samples():
+    key = jax.random.key(42)
+    f_n = jnp.array(0.6, dtype=float)
+    samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, f_n, 4, key)
+    assert samples.shape == (1, 4)
+
 
 def test_MC_fisher():
     def fn(input, params):

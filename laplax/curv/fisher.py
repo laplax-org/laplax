@@ -276,7 +276,12 @@ def sample_likelihood(loss_fn, f_n, mc_samples, key):
 
     if loss_fn is LossFn.CROSS_ENTROPY:
         return jax.random.categorical(key, f_n, shape=(1, mc_samples), replace=True)
-    msg = f"Unsupported LossFn {loss_fn} to sample from."
+
+    if loss_fn is LossFn.BINARY_CROSS_ENTROPY:
+        bool_samples = jax.random.bernoulli(key, f_n, shape=(1, mc_samples))
+        return jnp.astype(bool_samples, jnp.float32)
+
+        msg = f"Unsupported LossFn {loss_fn} to sample from."
     raise ValueError(msg)
 
 
