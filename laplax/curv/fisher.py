@@ -25,22 +25,26 @@ def transpose(linop, example_input):
     return lambda v: t(v)[0]
 
 
-def fisher_calculation(jvp, grad, vec):
-    r"""Nests matrix vector product calls as needed for fisher calculation.
+def fisher_calculation(f_n, jvp, y, loss_grad_fn, vec):
+    r"""Performs fisher calculation for single input and label.
 
     Calculates
     $$
-    \text{jvp}^\top (\text{grads_vp}(\text{grads_vp}^\top(\text{jvp}(\text{vec}))))
+    \text{jvp}^\top (\text{grad}(\text{grad}^\top(\text{jvp}(\text{vec}))))
     $$
-
+    where 'grad' is the gradient of the loss function evalutated at 'f_n' and 'y'.
+    
     Args:
+        f_n: Result of the network's forward pass
         jvp: A callable mapping a PyTree to a vector of shape (O)
-        grad: A vector of shape (O) representing the loss gradient
+        y: The label to use 
+        loss_grad_fn: The gradient of the loss function
         vec: A PyTree that can be consumed by jvp
 
     Returns:
         The unscaled fisher matrix vector poduct for one datum
     """
+    grad = loss_grad_fn(f_n, y)[:, None]
     vjp = transpose(jvp, vec)
 
     Jv = jvp(vec)
@@ -48,14 +52,6 @@ def fisher_calculation(jvp, grad, vec):
     GGtJv = grad @ GtJv
     JtGGtJv = vjp(GGtJv)
     return JtGGtJv
-
-
-def fisher_single_datum(f_n, jvp, y, params, model_fn, loss_grad_fn, vec, factor):
-    
-    grad = loss_grad_fn(f_n, y)[:, None]
-    # Pass to fisher calculation
-    fisher = fisher_calculation(jvp, grad, vec)
-    return mul(factor, fisher)
 
 
 def create_empirical_fisher_mv_without_data(
@@ -109,13 +105,13 @@ def create_empirical_fisher_mv_without_data(
             # Calculate forward pass and its derivative
             f_n, jvp = jax.linearize(lambda p: model_fn(x, p), params)
 
-            return fisher_single_datum(f_n, jvp, y, params, model_fn, loss_grad_fn, vec, factor)
+            return fisher_calculation(f_n, jvp, y, loss_grad_fn, vec)
+            
 
-        if vmap_over_data:
-            vmap = jax.vmap(emp_fisher_single_datum)(data)
-            return mean(vmap, axis=0)  # Mean over vmap batch dimension
-        return emp_fisher_single_datum(data, vec)
-
+        vmap = jax.vmap(emp_fisher_single_datum)(data)
+        fisher = mean(vmap, axis=0)  # Mean over vmap batch dimension
+        return mul(factor, fisher)
+        
     return empirical_fisher_mv
 
 
@@ -253,7 +249,8 @@ def create_MC_fisher_mv_without_data(
             f_n, jvp = jax.linearize(lambda p: model_fn(x, p), params)
 
             def mc_fisher_single_label(y_sample):
-                return fisher_single_datum(f_n, jvp, y_sample, params, model_fn, loss_grad_fn, vec, factor)
+                return fisher_calculation(f_n, jvp, y_sample, loss_grad_fn, vec)
+                
 
             y_samples = sample_likelihood(loss_fn, f_n, mc_samples, key)
             vmap = jax.vmap(mc_fisher_single_label)(y_samples)
@@ -262,7 +259,8 @@ def create_MC_fisher_mv_without_data(
         batch_size = data["input"].shape[0]
         keys = jax.random.split(key, batch_size)
         vmap = jax.vmap(mc_fisher_single_datum)(data, keys)
-        return mean(vmap, axis=0)  # over data batch dimension
+        fisher = mean(vmap, axis=0)  # over data batch dimension
+        return mul(factor, fisher)
 
     return mc_fisher_mv
 
