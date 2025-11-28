@@ -9,54 +9,24 @@ from laplax.curv.fisher import (
 from laplax.enums import LossFn
 from laplax.util.flatten import full_flatten
 
+import pytest
+from .cases.fisher import FisherCase
 
-class QuadraticFnTestCase:
-
-    def __init__(self):
-        def fn(input, params):
-            return jnp.array(params["a"] * input**2 + params["b"] * input + params["c"])
-
-        self.fn = fn
-
-        self.data = {
+@pytest.fixture
+def case():
+    return FisherCase(
+    fn = lambda input, params: jnp.array(params["a"] * input**2 + params["b"] * input + params["c"]),
+    data = {
         "input": jnp.array([-1.0, 0.7, 1.3]).reshape(3, 1),
         "target": jnp.array([1.25, -0.11, 0.79]).reshape(3, 1),
-        }
-
-        self.params = {"a": jnp.array(1.5), "b": jnp.array(-0.5), "c": jnp.array(-0.25)}
-
-        self.loss = LossFn.MSE
-
-        self.fisher_manual = self.fisher_manual()
+        },
+    params = {"a": jnp.array(1.5), "b": jnp.array(-0.5), "c": jnp.array(-0.25)},
+    loss = lambda fn,y: ((fn -y)**2).squeeze()
+)
 
 
-    def fisher_manual(self):
-        def df_dparams(input, params):
-            del params
-            df_da = input.item() ** 2
-            df_db = input.item()
-            df_dc = 1
-            return jnp.array([[df_da, df_db, df_dc]])
+def test_emp_fisher_on_quadratic_fn(case):
 
-        def dc_df(f, y):  # For MSE Loss
-            return jnp.atleast_2d(2 * (f - y))
-
-        jacs = [df_dparams(x, self.params) for x in self.data["input"]]
-        grads = [
-            dc_df(self.fn(x, self.params), y)
-            for x, y in zip(self.data["input"], self.data["target"], strict=True)
-        ]
-
-        fisher_manual = jnp.mean(jnp.array([
-                jac.T @ grad @ grad.T @ jac 
-                for jac, grad in zip(jacs, grads, strict=True)
-            ]),axis=0,)
-        return fisher_manual
-
-
-def test_emp_fisher_on_quadratic_fn():
-
-    case = QuadraticFnTestCase()
     
     fisher_mv = create_empirical_fisher_mv(
         model_fn=case.fn,
@@ -72,7 +42,6 @@ def test_emp_fisher_on_quadratic_fn():
     fisher_row_3 = full_flatten(fisher_mv({"a": 0.0, "b": 0.0, "c": 1.0}))
     fisher_laplax = jnp.stack((fisher_row_1, fisher_row_2, fisher_row_3))
 
-    
     assert jnp.allclose(fisher_laplax, case.fisher_manual)
 
 
@@ -147,8 +116,7 @@ def test_emp_fisher_on_quadratic_fn_2():
     assert jnp.allclose(fisher_laplax, fisher_manual)
 
 
-def test_emp_fisher_without_data_vmap():
-    case = QuadraticFnTestCase()
+def test_emp_fisher_without_data_vmap(case):
     
     fisher_mv = create_empirical_fisher_mv(
         model_fn=case.fn,
