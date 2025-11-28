@@ -13,127 +13,95 @@ import pytest
 from .cases.fisher import FisherCase
 
 @pytest.fixture
-def case():
+def case1():
     return FisherCase(
-    fn = lambda input, params: jnp.array(params["a"] * input**2 + params["b"] * input + params["c"]),
+    fn = lambda input, params: jnp.array(params[0] * input**2 + params[1] * input + params[2]),
     data = {
         "input": jnp.array([-1.0, 0.7, 1.3]).reshape(3, 1),
         "target": jnp.array([1.25, -0.11, 0.79]).reshape(3, 1),
         },
-    params = {"a": jnp.array(1.5), "b": jnp.array(-0.5), "c": jnp.array(-0.25)},
-    loss = lambda fn,y: ((fn -y)**2).squeeze()
+    params = jnp.array([1.5, -0.5, -0.25]),
+    loss = lambda fn,y: ((fn - y)**2).sum()
 )
 
-
-def test_emp_fisher_on_quadratic_fn(case):
-
-    
-    fisher_mv = create_empirical_fisher_mv(
-        model_fn=case.fn,
-        params=case.params,
-        data=case.data,
-        loss_fn=case.loss,
-        vmap_over_data=True,
-    )
-
-    # Construct full matrix via mvp with one-hot vectors as PyTrees
-    fisher_row_1 = full_flatten(fisher_mv({"a": 1.0, "b": 0.0, "c": 0.0}))
-    fisher_row_2 = full_flatten(fisher_mv({"a": 0.0, "b": 1.0, "c": 0.0}))
-    fisher_row_3 = full_flatten(fisher_mv({"a": 0.0, "b": 0.0, "c": 1.0}))
-    fisher_laplax = jnp.stack((fisher_row_1, fisher_row_2, fisher_row_3))
-
-    assert jnp.allclose(fisher_laplax, case.fisher_manual)
-
-
-def test_emp_fisher_on_quadratic_fn_2():
-    # Carefully crafted example where all shapes are different to simplify debugging
+@pytest.fixture
+def case2():
+    # Carefully crafted case where all shapes are different to simplify debugging
     # n_data = 3
     # fn_output_dim = 2
     # Parameters: PyTree with two elements that are (2,)-tensors -> 4 params
-
-    def fn(input, params):
-        return jnp.array([
-            params["a"][0] * input**2 + params["b"][0] * input,
-            params["a"][1] * input + params["b"][1],
-        ]).squeeze()
-
+    return FisherCase(
+    fn = lambda input, params: jnp.array([
+            params[0] * input**2 + params[1] * input,
+            params[2] * input + params[3],
+        ]).squeeze(),
     data = {
         "input": jnp.array([0.3, 0.7, 0.4]).reshape(3, 1),
         "target": jnp.array([0.3, 0.7, 0.4, 0.5, 0.3, 0.7]).reshape(3, 2),
-    }
+    },
+    params = jnp.array([1.7, 2.3, -0.5, -1]),
+    loss = lambda fn,y: ((fn - y)**2).sum()
+)
 
-    best_params = {"a": jnp.array([1.7, 2.3]), "b": jnp.array([-0.5, -1])}
 
+def test_emp_fisher_on_quadratic_fn(case1):
+    
     fisher_mv = create_empirical_fisher_mv(
-        model_fn=fn,
-        params=best_params,
-        data=data,
-        loss_fn=LossFn.MSE,
+        model_fn=case1.fn,
+        params=case1.params,
+        data=case1.data,
+        loss_fn=case1.loss,
         vmap_over_data=True,
     )
 
     # Construct full matrix via mvp with one-hot vectors as PyTrees
-    fisher_row_1 = full_flatten(
-        fisher_mv({"a": jnp.array([1.0, 0.0]), "b": jnp.array([0.0, 0.0])})
-    )
-    fisher_row_2 = full_flatten(
-        fisher_mv({"a": jnp.array([0.0, 1.0]), "b": jnp.array([0.0, 0.0])})
-    )
-    fisher_row_3 = full_flatten(
-        fisher_mv({"a": jnp.array([0.0, 0.0]), "b": jnp.array([1.0, 0.0])})
-    )
-    fisher_row_4 = full_flatten(
-        fisher_mv({"a": jnp.array([0.0, 0.0]), "b": jnp.array([0.0, 1.0])})
-    )
+    fisher_row_1 = full_flatten(fisher_mv(jnp.array([1., 0., 0.])))
+    fisher_row_2 = full_flatten(fisher_mv(jnp.array([0., 1., 0.])))
+    fisher_row_3 = full_flatten(fisher_mv(jnp.array([0., 0., 1.])))
+    fisher_laplax = jnp.stack((fisher_row_1, fisher_row_2, fisher_row_3))
 
-    fisher_laplax = jnp.stack((fisher_row_1, fisher_row_2, fisher_row_3, fisher_row_4))
-
-    def df_dparams(input, params):
-        del params
-        df_da0 = input.item() ** 2
-        df_db0 = input.item()
-        df_da1 = input.item()
-        df_db1 = 1
-        return jnp.array([[df_da0, 0.0, df_db0, 0.0], [0.0, df_da1, 0.0, df_db1]])
-
-    def dc_df(f, y):  # For MSE Loss
-        return 2 * (f - y)
-
-    jacs = [df_dparams(x, best_params) for x in data["input"]]
-    grads = [
-        dc_df(fn(x, best_params).squeeze(), y.squeeze())
-        for x, y in zip(data["input"], data["target"], strict=True)
-    ]
-
-    fisher_manual = jnp.mean(
-        jnp.array([
-            jac.T @ grad[:, None] @ grad[None, :] @ jac
-            for jac, grad in zip(jacs, grads, strict=True)
-        ]),
-        axis=0,
-    )
-
-    assert jnp.allclose(fisher_laplax, fisher_manual)
+    assert jnp.allclose(fisher_laplax, case1.fisher_manual)
 
 
-def test_emp_fisher_without_data_vmap(case):
+def test_emp_fisher_on_quadratic_fn_2(case2):
     
     fisher_mv = create_empirical_fisher_mv(
-        model_fn=case.fn,
-        params=case.params,
-        data=case.data,
-        loss_fn=case.loss,
+        model_fn=case2.fn,
+        params=case2.params,
+        data=case2.data,
+        loss_fn=case2.loss,
+        vmap_over_data=True,
+    )
+
+    # Construct full matrix via mvp with one-hot vectors as PyTrees
+    fisher_row_1 = full_flatten(fisher_mv(jnp.array([1., 0., 0., 0.])))
+    fisher_row_2 = full_flatten(fisher_mv(jnp.array([0., 1., 0., 0.])))
+    fisher_row_3 = full_flatten(fisher_mv(jnp.array([0., 0., 1., 0.])))
+    fisher_row_4 = full_flatten(fisher_mv(jnp.array([0., 0., 0., 1.])))
+    fisher_laplax = jnp.stack((fisher_row_1, fisher_row_2, fisher_row_3, fisher_row_4))
+    print(fisher_laplax)
+    print(case2.fisher_manual)
+    assert jnp.allclose(fisher_laplax, case2.fisher_manual)
+
+
+def test_emp_fisher_without_data_vmap(case1):
+    
+    fisher_mv = create_empirical_fisher_mv(
+        model_fn=case1.fn,
+        params=case1.params,
+        data=case1.data,
+        loss_fn=case1.loss,
         vmap_over_data=False,
     )
 
     # Construct full matrix via mvp with one-hot vectors as PyTrees
-    fisher_row_1 = full_flatten(fisher_mv({"a": 1.0, "b": 0.0, "c": 0.0}))
-    fisher_row_2 = full_flatten(fisher_mv({"a": 0.0, "b": 1.0, "c": 0.0}))
-    fisher_row_3 = full_flatten(fisher_mv({"a": 0.0, "b": 0.0, "c": 1.0}))
+    fisher_row_1 = full_flatten(fisher_mv(jnp.array([1., 0., 0.])))
+    fisher_row_2 = full_flatten(fisher_mv(jnp.array([0., 1., 0.])))
+    fisher_row_3 = full_flatten(fisher_mv(jnp.array([0., 0., 1.])))
     fisher_laplax = jnp.stack((fisher_row_1, fisher_row_2, fisher_row_3))
 
     
-    assert jnp.allclose(fisher_laplax, case.fisher_manual)
+    assert jnp.allclose(fisher_laplax, case1.fisher_manual)
 
 
 def test_MSE_samples():
