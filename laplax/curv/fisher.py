@@ -18,13 +18,6 @@ from laplax.types import (
 from laplax.util.tree import mean, mul
 
 
-def transpose(linop, example_input):
-    # Simple wrapper around jax.linear_transpose to
-    # directly return transpose of linop with single argument
-    t = jax.linear_transpose(linop, example_input)
-    return lambda v: t(v)[0]
-
-
 def fisher_calculation(f_n, jvp, y, loss_grad_fn, vec):
     r"""Performs fisher calculation for single input and label.
 
@@ -45,12 +38,12 @@ def fisher_calculation(f_n, jvp, y, loss_grad_fn, vec):
         The unscaled fisher matrix vector poduct for one datum
     """
     grad = loss_grad_fn(f_n, y)[:, None]
-    vjp = transpose(jvp, vec)
+    vjp = jax.linear_transpose(jvp, vec)
 
     Jv = jvp(vec)
     GtJv = grad.T @ Jv
     GGtJv = grad @ GtJv
-    JtGGtJv = vjp(GGtJv)
+    JtGGtJv = vjp(GGtJv)[0]
     return JtGGtJv
 
 
@@ -111,7 +104,7 @@ def create_empirical_fisher_mv_without_data(
         vmap = jax.vmap(emp_fisher_single_datum)(data)
         fisher = mean(vmap, axis=0)  # Mean over vmap batch dimension
         return mul(factor, fisher)
-        
+
     return empirical_fisher_mv
 
 
