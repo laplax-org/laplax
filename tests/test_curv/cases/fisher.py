@@ -33,3 +33,8 @@ class FisherCase:
                 for jac, grad in zip(jacs, grads, strict=True)
             ]),axis=0,)
         return fisher_manual
+
+    def construct_fisher(self, fisher_mv):
+        # Construct full matrix via mvp with one-hot vectors
+        fisher_rows = [full_flatten(fisher_mv(row)) for row in jnp.eye(len(self.params))]
+        return jnp.stack(fisher_rows)
