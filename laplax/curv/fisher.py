@@ -255,31 +255,31 @@ def create_MC_fisher_mv_without_data(
             # Calculate forward pass and its derivative
             f_n, jvp = jax.linearize(lambda p: model_fn(x, p), params)
 
-            def mc_fisher_single_label(key):
-                y_sample = sample_likelihood(loss_fn, f_n, key)
+            def mc_fisher_single_label(y_sample):
                 return fisher_single_datum(f_n, jvp, y_sample, params, model_fn, loss_grad_fn, vec, factor)
 
-            keys = jax.random.split(key, mc_samples)
-            vmap = jax.vmap(mc_fisher_single_label)(keys)
+            y_samples = sample_likelihood(loss_fn, f_n, mc_samples, key)
+            vmap = jax.vmap(mc_fisher_single_label)(y_samples)
             return mean(vmap, axis=0) # over mc_samples dimension
-
+        
+        keys = jax.random.split(key, mc_samples)
         vmap = jax.vmap(mc_fisher_single_datum)(data)
         return mean(vmap, axis=0)  # over data batch dimension
 
     return mc_fisher_mv
 
 
-def sample_likelihood(loss_fn, f_n, key):
+def sample_likelihood(loss_fn, f_n, mc_samples, key):
     # sample mc_samples values $\tilde{y} from e^{-\text{loss_fn}(y, f_n)}$
     if loss_fn == LossFn.MSE:
-        unit_samples = jax.random.normal(key, shape=f_n.shape)
-        return unit_samples + f_n
+        unit_samples = jax.random.normal(key, shape=(mc_samples, *(f_n.shape)))
+        return unit_samples + f_n[None,...]
 
     if loss_fn == LossFn.CROSS_ENTROPY:
-        return jax.random.categorical(key, f_n, shape=(1), replace=True)
+        return jax.random.categorical(key, f_n, shape=(mc_samples, 1), replace=True)
 
     if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
-        bool_samples = jax.random.bernoulli(key, f_n, shape=(1))
+        bool_samples = jax.random.bernoulli(key, f_n, shape=(mc_samples, 1))
         return jnp.astype(bool_samples, jnp.float32)
 
     msg = f"Unsupported LossFn {loss_fn} to sample from."
