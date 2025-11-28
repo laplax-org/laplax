@@ -250,7 +250,7 @@ def create_MC_fisher_mv_without_data(
             
     def mc_fisher_mv(vec, data):
 
-        def mc_fisher_single_datum(datum):
+        def mc_fisher_single_datum(datum, key):
             x = datum["input"]
             # Calculate forward pass and its derivative
             f_n, jvp = jax.linearize(lambda p: model_fn(x, p), params)
@@ -262,8 +262,9 @@ def create_MC_fisher_mv_without_data(
             vmap = jax.vmap(mc_fisher_single_label)(y_samples)
             return mean(vmap, axis=0) # over mc_samples dimension
         
-        keys = jax.random.split(key, mc_samples)
-        vmap = jax.vmap(mc_fisher_single_datum)(data)
+        batch_size = data["input"].shape[0]
+        keys = jax.random.split(key, batch_size)
+        vmap = jax.vmap(mc_fisher_single_datum)(data, keys)
         return mean(vmap, axis=0)  # over data batch dimension
 
     return mc_fisher_mv
