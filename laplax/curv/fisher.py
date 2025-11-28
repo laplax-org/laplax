@@ -25,7 +25,7 @@ def transpose(linop, example_input):
     return lambda v: t(v)[0]
 
 
-def fisher_calculation(jvp, grads_vp, vec, M=1):
+def fisher_calculation(jvp, grad, vec):
     r"""Nests matrix vector product calls as needed for fisher calculation.
 
     Calculates
@@ -35,29 +35,26 @@ def fisher_calculation(jvp, grads_vp, vec, M=1):
 
     Args:
         jvp: A callable mapping a PyTree to a vector of shape (O)
-        grads_vp: A callable mapping a vector of shape ('M') to  vector of shape (O)
+        grad: A vector of shape (O) representing the loss gradient
         vec: A PyTree that can be consumed by jvp
-        M: Number of gradients provided
 
     Returns:
         The unscaled fisher matrix vector poduct for one datum
     """
     vjp = transpose(jvp, vec)
-    v_grads_p = transpose(grads_vp, jnp.zeros(M))
 
     Jv = jvp(vec)
-    GtJv = v_grads_p(Jv)
-    GGtJv = grads_vp(GtJv)
+    GtJv = grad.T @ Jv
+    GGtJv = grad @ GtJv
     JtGGtJv = vjp(GGtJv)
     return JtGGtJv
 
 
 def fisher_single_datum(f_n, jvp, y, params, model_fn, loss_grad_fn, vec, factor):
     
-    # Construct gradient mv
     grad = loss_grad_fn(f_n, y)[:, None]
     # Pass to fisher calculation
-    fisher = fisher_calculation(jvp, lambda v: grad @ v, vec)
+    fisher = fisher_calculation(jvp, grad, vec)
     return mul(factor, fisher)
 
 
