@@ -144,6 +144,39 @@ def test_emp_fisher_with_pytree_params():
     assert jnp.allclose(fisher_laplax, fisher_manual)
 
 
+@pytest.fixture
+def case_CE():
+    def fn(input, params):
+        return jnp.array([
+            params[0] * input + params[1],
+            params[2] * input + params[3],
+        ]).squeeze()
+
+    def CE(fn, y):
+        return (fn[y] - jnp.logaddexp(fn[0], fn[1])).squeeze()
+
+    return FisherCase(
+    fn = fn,
+    data = {
+        "input": jnp.array([-1.0, 0.7, -0.5]).reshape(3, 1),
+        "target": jnp.array([0, 1, 0]).reshape(3, 1),
+        },
+    params = jnp.array([1.0, 0.5, -1.0, 0.5]),
+    loss = CE
+    )
+
+def test_cross_entropy_loss(case_CE):
+    fisher_mv = create_empirical_fisher_mv(
+        model_fn=case_CE.fn,
+        params=case_CE.params,
+        data=case_CE.data,
+        loss_fn=case_CE.loss,
+        vmap_over_data=True,
+    )
+    fisher_laplax = case_CE.construct_fisher(fisher_mv)
+    
+    assert jnp.allclose(fisher_laplax, case_CE.fisher_manual)
+
 
 def test_MSE_samples():
     key = jax.random.key(42)
