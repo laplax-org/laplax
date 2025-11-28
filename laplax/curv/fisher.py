@@ -52,6 +52,15 @@ def fisher_calculation(jvp, grads_vp, vec, M=1):
     return JtGGtJv
 
 
+def fisher_single_datum(f_n, jvp, y, params, model_fn, loss_grad_fn, vec, factor):
+    
+    # Construct gradient mv
+    grad = loss_grad_fn(f_n, y)[:, None]
+    # Pass to fisher calculation
+    fisher = fisher_calculation(jvp, lambda v: grad @ v, vec)
+    return mul(factor, fisher)
+
+
 def create_empirical_fisher_mv_without_data(
     model_fn: ModelFn,
     params: Params,
@@ -97,18 +106,13 @@ def create_empirical_fisher_mv_without_data(
     loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, vmap_over_data=False)
 
     def empirical_fisher_mv(vec, data):
+        
         def emp_fisher_single_datum(datum):
             x, y = datum["input"], datum["target"]
-
             # Calculate forward pass and its derivative
-            f_x, jvp = jax.linearize(lambda p: model_fn(x, p), params)
+            f_n, jvp = jax.linearize(lambda p: model_fn(x, p), params)
 
-            # Construct gradient mv
-            grad = loss_grad_fn(f_x, y)[:, None]
-
-            # Pass to fisher calculation
-            fisher = fisher_calculation(jvp, lambda v: grad @ v, vec)
-            return mul(factor, fisher)
+            return fisher_single_datum(f_n, jvp, y, params, model_fn, loss_grad_fn, vec, factor)
 
         if vmap_over_data:
             vmap = jax.vmap(emp_fisher_single_datum)(data)
@@ -243,42 +247,39 @@ def create_MC_fisher_mv_without_data(
     """
     loss_grad_fn = fetch_loss_gradient_fn(loss_fn, None, vmap_over_data=False)
 
+            
     def mc_fisher_mv(vec, data):
+
         def mc_fisher_single_datum(datum):
-            x = datum["input"]  # y is never used for MC Fisher
-
+            x = datum["input"]
             # Calculate forward pass and its derivative
-            f_x, jvp = jax.linearize(lambda p: model_fn(x, p), params)
+            f_n, jvp = jax.linearize(lambda p: model_fn(x, p), params)
 
-            # Construct would-be-gradients mv
-            y_samples = sample_likelihood(loss_fn, f_x, mc_samples, key)
-            would_be_grads = loss_grad_fn(f_x[:, None], y_samples)
+            def mc_fisher_single_label(key):
+                y_sample = sample_likelihood(loss_fn, f_n, key)
+                return fisher_single_datum(f_n, jvp, y_sample, params, model_fn, loss_grad_fn, vec, factor)
 
-            def would_be_grads_mv(vec):
-                return would_be_grads @ vec
+            keys = jax.random.split(key, mc_samples)
+            vmap = jax.vmap(mc_fisher_single_label)(keys)
+            return mean(vmap, axis=0) # over mc_samples dimension
 
-            fisher = fisher_calculation(jvp, would_be_grads_mv, vec, M=mc_samples)
-            return mul(factor / mc_samples, fisher)
-
-        if vmap_over_data:
-            vmap = jax.vmap(mc_fisher_single_datum)(data)
-            return mean(vmap, axis=0)  # Mean over vmap batch dimension
-        return mc_fisher_single_datum(data["input"], data["target"], vec)
+        vmap = jax.vmap(mc_fisher_single_datum)(data)
+        return mean(vmap, axis=0)  # over data batch dimension
 
     return mc_fisher_mv
 
 
-def sample_likelihood(loss_fn, f_n, mc_samples, key):
+def sample_likelihood(loss_fn, f_n, key):
     # sample mc_samples values $\tilde{y} from e^{-\text{loss_fn}(y, f_n)}$
     if loss_fn == LossFn.MSE:
-        unit_samples = jax.random.normal(key, shape=(f_n.shape[0], mc_samples))
-        return unit_samples + f_n[:, None]
+        unit_samples = jax.random.normal(key, shape=f_n.shape)
+        return unit_samples + f_n
 
     if loss_fn == LossFn.CROSS_ENTROPY:
-        return jax.random.categorical(key, f_n, shape=(1, mc_samples), replace=True)
+        return jax.random.categorical(key, f_n, shape=(1), replace=True)
 
     if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
-        bool_samples = jax.random.bernoulli(key, f_n, shape=(1, mc_samples))
+        bool_samples = jax.random.bernoulli(key, f_n, shape=(1))
         return jnp.astype(bool_samples, jnp.float32)
 
     msg = f"Unsupported LossFn {loss_fn} to sample from."
