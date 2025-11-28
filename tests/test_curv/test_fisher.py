@@ -147,6 +147,26 @@ def test_emp_fisher_on_quadratic_fn_2():
     assert jnp.allclose(fisher_laplax, fisher_manual)
 
 
+def test_emp_fisher_without_data_vmap():
+    case = QuadraticFnTestCase()
+    
+    fisher_mv = create_empirical_fisher_mv(
+        model_fn=case.fn,
+        params=case.params,
+        data=case.data,
+        loss_fn=case.loss,
+        vmap_over_data=False,
+    )
+
+    # Construct full matrix via mvp with one-hot vectors as PyTrees
+    fisher_row_1 = full_flatten(fisher_mv({"a": 1.0, "b": 0.0, "c": 0.0}))
+    fisher_row_2 = full_flatten(fisher_mv({"a": 0.0, "b": 1.0, "c": 0.0}))
+    fisher_row_3 = full_flatten(fisher_mv({"a": 0.0, "b": 0.0, "c": 1.0}))
+    fisher_laplax = jnp.stack((fisher_row_1, fisher_row_2, fisher_row_3))
+
+    
+    assert jnp.allclose(fisher_laplax, case.fisher_manual)
+
 
 def test_MSE_samples():
     key = jax.random.key(42)
