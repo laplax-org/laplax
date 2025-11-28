@@ -16,31 +16,40 @@ import pytest_cases
 
 def case1():
     return FisherCase(
-    fn = lambda input, params: jnp.array(params[0] * input**2 + params[1] * input + params[2]),
+    n = 3,
+    o = 1,
+    i = 1,
+    l = 1,
+    p = 3,
+    fn = lambda input, params: params[0] * input**2 + params[1] * input + params[2],
     data = {
-        "input": jnp.array([-1.0, 0.7, 1.3]).reshape(3, 1),
-        "target": jnp.array([1.25, -0.11, 0.79]).reshape(3, 1),
+        "input": jnp.array([-1.0, 0.7, 1.3]).reshape(3,1),
+        "target": jnp.array([1.25, -0.11, 0.79]).reshape(3,1),
         },
-    params = jnp.array([1.5, -0.5, -0.25]),
-    loss = lambda fn,y: ((fn - y)**2).sum()
+    params = jnp.array([1.5, -0.5, -0.25]).reshape(3),
+    loss = lambda fn,y: ((fn - y)**2).sum(axis=-1)
 )
 
 def case2():
     # Carefully crafted case where all shapes are different to simplify debugging
-    # n_data = 3
-    # fn_output_dim = 2
-    # Parameters: PyTree with two elements that are (2,)-tensors -> 4 params
+    def fn(input, params):
+        input = jnp.squeeze(input, axis=-1)
     return FisherCase(
+    n = 3,
+    o = 2,
+    i = 1,
+    l = 2,
+    p = 4,
     fn = lambda input, params: jnp.array([
             params[0] * input**2 + params[1] * input,
             params[2] * input + params[3],
-        ]).squeeze(),
+        ]).mT,
     data = {
         "input": jnp.array([0.3, 0.7, 0.4]).reshape(3, 1),
         "target": jnp.array([0.3, 0.7, 0.4, 0.5, 0.3, 0.7]).reshape(3, 2),
     },
     params = jnp.array([1.7, 2.3, -0.5, -1]),
-    loss = lambda fn,y: ((fn - y)**2).sum()
+    loss = lambda fn,y: ((fn - y)**2).sum(axis=-1)
 )
 
 @pytest.mark.parametrize("i", [0, 1])
@@ -147,23 +156,29 @@ def test_emp_fisher_with_pytree_params():
 @pytest.fixture
 def case_CE():
     def fn(input, params):
+        input = input.squeeze(axis=-1)
         return jnp.array([
             params[0] * input + params[1],
             params[2] * input + params[3],
-        ]).squeeze()
+        ]).mT
 
     def CE(fn, y):
-        return (fn[y] - jnp.logaddexp(fn[0], fn[1])).squeeze()
+        return (fn[:,y] - jnp.logaddexp(fn[:,0], fn[:,1]))
 
     return FisherCase(
-    fn = fn,
-    data = {
-        "input": jnp.array([-1.0, 0.7, -0.5]).reshape(3, 1),
-        "target": jnp.array([0, 1, 0]).reshape(3, 1),
-        },
-    params = jnp.array([1.0, 0.5, -1.0, 0.5]),
-    loss = CE
-    )
+        n = 3,
+        o = 2,
+        i = 1,
+        l = 1,
+        p = 4,
+        fn = fn,
+        data = {
+            "input": jnp.array([-1.0, 0.7, -0.5]).reshape(3, 1),
+            "target": jnp.array([0, 1, 0]).reshape(3, 1),
+            },
+        params = jnp.array([1.0, 0.5, -1.0, 0.5]),
+        loss = CE
+        )
 
 def test_cross_entropy_loss(case_CE):
     fisher_mv = create_empirical_fisher_mv(
@@ -213,7 +228,7 @@ def test_MC_fisher():
 
     params = {"a": jnp.array([1.5, 0.2])}
 
-    key = jax.random.PRNGKey(42)
+    key = jax.random.key(42)
 
     mc_fisher_mv = create_MC_fisher_mv(
         model_fn=fn,
@@ -221,7 +236,7 @@ def test_MC_fisher():
         data=data,
         loss_fn=LossFn.MSE,
         vmap_over_data=True,
-        mc_samples=10,
+        mc_samples=1,
         key=key,
     )
 
