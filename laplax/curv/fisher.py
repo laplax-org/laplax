@@ -189,7 +189,6 @@ def create_MC_fisher_mv_without_data(
     params: Params,
     loss_fn: LossFn | str,
     factor: Float,
-    key: KeyType,
     *,
     vmap_over_data: bool = True,
     mc_samples: Int | None = 1,
@@ -225,7 +224,7 @@ def create_MC_fisher_mv_without_data(
         mc_samples: Number of MC samples to use. Defaults to 1.
 
     Returns:
-        A function that takes a vector and a batch of data,
+        A function that takes a vector, a batch of data and a key,
         and computes the Monte-Carlo Fisher matrix-vector product.
 
     Note:
@@ -234,7 +233,7 @@ def create_MC_fisher_mv_without_data(
     loss_grad_fn = fetch_loss_gradient_fn(loss_fn, None, vmap_over_data=False)
 
             
-    def mc_fisher_mv(vec, data):
+    def mc_fisher_mv(vec, data, key):
 
         def mc_fisher_single_datum(datum, key):
             x = datum["input"]
@@ -345,13 +344,12 @@ def create_MC_fisher_mv(
         model_fn=model_fn,
         params=params,
         loss_fn=loss_fn,
-        key=key,
         factor=curv_scaling_factor,
         vmap_over_data=vmap_over_data,
         mc_samples=mc_samples,
     )
 
     def wrapped_fisher_mv(vec: Params) -> Params:
-        return fisher_mv(vec, data)
+        return fisher_mv(vec, data, key)
 
     return wrapped_fisher_mv
