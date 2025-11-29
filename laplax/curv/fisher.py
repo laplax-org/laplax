@@ -94,10 +94,10 @@ def create_empirical_fisher_mv_without_data(
     Note:
         The function assumes as a default that the data has a batch dimension.
     """
-    loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, vmap_over_data=False)
+    loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
 
     def empirical_fisher_mv(vec, data):
-        
+
         def emp_fisher_single_datum(datum):
             x, y = datum["input"], datum["target"]
 
@@ -105,7 +105,24 @@ def create_empirical_fisher_mv_without_data(
             f_n, jvp = jax.linearize(lambda p: model_fn(x, p), params)
 
             return fisher_calculation(f_n, jvp, y, loss_grad_fn, vec)
+        
+        def emp_fisher_multiple_data(data):
+            # Implementation that handles data batch dim explicitly
+            xs, ys = data["input"], data["target"]
+
+            # Calculate forward pass
+            f_ns = model_fn(xs, params)
+            f_ns_, jvp = jax.linearize(lambda p: model_fn(xs, p), params)
             
+            jvp_t = jax.linear_transpose(jvp, vec)
+            loss_grad_fn_vmapped = jax.vmap(loss_grad_fn)
+            grads = loss_grad_fn_vmapped(f_ns, ys)
+
+            Jv      = jvp(vec)      # (n,o)
+            GtJv    = jnp.einsum("no,no->n",    grads, Jv)       # (n,)
+            GGtJv = jnp.einsum("n,no->no",    GtJv, grads)     # (n,o)
+            fisher = jvp_t(GGtJv) # implicity sums over batch dim
+            return mul(1./len(xs), fisher)
 
         if vmap_over_data:
             msg = "vmap_over_data=True could not find a leading batch dimension"
@@ -116,12 +133,12 @@ def create_empirical_fisher_mv_without_data(
             if data["input"].ndim == 1:
                 # No leading batch dim => Calculate for single datum
                 fisher = emp_fisher_single_datum(data)
-            else if data["input"].shape[0] == 1:
+            elif data["input"].shape[0] == 1:
                 # Only one datum in batch
                 datum = {"input": data["input"][0], "target": data["target"][0]}
                 fisher = emp_fisher_single_datum(datum)
             else:
-                # Handle batch dimension of data implicitly
+                # Handle batch dimension of data explicitly
                 fisher = emp_fisher_multiple_data(data)
         return mul(factor, fisher)
 

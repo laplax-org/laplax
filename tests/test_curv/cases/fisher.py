@@ -33,16 +33,16 @@ class FisherCase:
         assert data["target"].shape == (n,l)
         self.params = params
         assert params.shape == (p,)
-        
+
         def optionally_batched_loss(fn, y):
-            if self.handle_batches == False:
-                assert fn.shape == (o,)
-                assert y.shape == (l,)
-                output = loss(fn, y)
-            else:
-                assert fn.shape == (n,o)
-                assert y.shape == (n,l)
-                output = jax.vmap(loss)(fn, y)
+            #if self.handle_batches == False:
+            assert fn.shape == (o,)
+            assert y.shape == (l,)
+            output = loss(fn, y)
+            #else:
+            #    assert fn.shape == (n,o)
+            #    assert y.shape == (n,l)
+            #    output = jax.vmap(loss)(fn, y)
             return output
 
         self.loss = optionally_batched_loss

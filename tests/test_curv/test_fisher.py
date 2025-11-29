@@ -119,7 +119,6 @@ def test_emp_fisher_without_data_vmap(case):
         vmap_over_data=False,
     )
     fisher_laplax = case.construct_fisher(fisher_mv)
-    
     assert jnp.allclose(fisher_laplax, case.fisher_manual)
 
 

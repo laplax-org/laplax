@@ -200,14 +200,13 @@ def fetch_loss_gradient_fn(
     | Callable[[PredArray, TargetArray], Num[Array, "..."]]
     | None,
     loss_gradient_fn: Callable | None,
-    vmap_over_data: bool,
     **kwargs: Kwargs,
 ) -> Callable[[PredArray, TargetArray], Num[Array, "..."]]:
     r"""Fetch a loss gradient function from the given arguments.
 
     If 'loss_gradient_fn' is passed, return this.
     If a known 'LossFn' is passed, return analytic gradient.
-    If a custon 'Callable' is passed, use automatic differentiation.
+    If a custom 'Callable' is passed, use automatic differentiation.
 
     Args:
         loss_fn: Loss function to compute the gradient for.
@@ -219,7 +218,6 @@ def fetch_loss_gradient_fn(
             - A custom callable loss function that takes predictions and targets.
 
         loss_gradient_fn: Custom precomputed loss gradient to use.
-        vmap_over_data: Whether to vmap over the data.
         **kwargs: Unused keyword arguments.
 
     Returns:
@@ -261,9 +259,6 @@ def fetch_loss_gradient_fn(
         else:
             msg = f"Unsupported loss function '{loss_fn}' provided"
             raise ValueError(msg)
-
-    if vmap_over_data:
-        loss_gradient_fn = jax.vmap(loss_gradient_fn)
 
     return loss_gradient_fn
 
