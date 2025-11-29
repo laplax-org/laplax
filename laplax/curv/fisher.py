@@ -100,23 +100,33 @@ def create_empirical_fisher_mv_without_data(
         
         def emp_fisher_single_datum(datum):
             x, y = datum["input"], datum["target"]
-            x = jnp.atleast_2d(x)
-            y = jnp.atleast_2d(y)
-            print("x.shape =?= (n,d)", x.shape)
-            print("y.shape =?= (n,i)", y.shape)
+            #x = jnp.atleast_2d(x)
+            #y = jnp.atleast_2d(y)
+            #print("x.shape =?= (n,d)", x.shape)
+            #print("y.shape =?= (n,i)", y.shape)
             # Calculate forward pass and its derivative
-            print("params =?= PyTree with p elements", params)
+            #print("params =?= PyTree with p elements", params)
 
             f_n, jvp = jax.linearize(lambda p: model_fn(x, p), params)
-            print("f_n.shape =?= (n,o)", f_n.shape)
+            #print("f_n.shape =?= (n,o)", f_n.shape)
             return fisher_calculation(f_n, jvp, y, loss_grad_fn, vec)
             
         if vmap_over_data:
+            msg = "vmap_over_data=True could not find a leading batch dimension"
+            assert data["input"].ndim > 1, msg
             vmap = jax.vmap(emp_fisher_single_datum)(data)
             fisher = mean(vmap, axis=0)  # over batch dimension
         else:
-            fishers = emp_fisher_single_datum(data)
-            fisher = mean(vmap, axis=0)
+            if data["input"].ndim == 1:
+                # No leading batch dim => Calculate for single datum
+                return emp_fisher_single_datum(data)
+            if data["input"].shape[0] == 1:
+                # Only one datum in batch
+                datum = {"input": data["input"][0], "target": data["target"][0]}
+                return emp_fisher_single_datum(datum)
+            else:
+                # Handle batch dimension of data implicitly
+                emp_fisher_multiple_data(data)
         return mul(factor, fisher)
 
     return empirical_fisher_mv
