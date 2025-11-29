@@ -22,7 +22,7 @@ class FisherCase:
                 assert output.shape == (o,)
             else:
                 assert input.shape == (n,i)
-                output = jax.vmap(fn)(input)
+                output = jax.vmap(lambda x: fn(x, params))(input)
                 assert output.shape == (n,o)
             return output
             
@@ -33,37 +33,33 @@ class FisherCase:
         assert data["target"].shape == (n,l)
         self.params = params
         assert params.shape == (p,)
-        print("o: ", self.o)
+        
         def optionally_batched_loss(fn, y):
             if self.handle_batches == False:
                 assert fn.shape == (o,)
                 assert y.shape == (l,)
                 output = loss(fn, y)
-                #print(output)
-                #assert output.shape == (1,)
             else:
                 assert fn.shape == (n,o)
                 assert y.shape == (n,l)
                 output = jax.vmap(loss)(fn, y)
-                #assert output.shape == (n,)
             return output
 
         self.loss = optionally_batched_loss
         self.fisher_manual = self.fisher_manual()
 
     def fisher_manual(self):
+
         def df_dparams(input, params):
             jac = jax.jacfwd(self.fn, argnums=1)
             return jnp.reshape(full_flatten(jac(input, params)), shape=(self.o, self.p))
         jacs = [df_dparams(x, self.params) for x in self.data["input"]]
-        print("jacs[0].shape =?= (o,p): ", jacs[0].shape)
 
         dLoss_df = jax.grad(self.loss, argnums=0)
         grads = [
             dLoss_df(self.fn(x, self.params), y)[:,None]
             for x, y in zip(self.data["input"], self.data["target"], strict=True)
         ]
-        print("grads[0].shape =?= (o,1): ", grads[0].shape)
         
         fisher_manual = jnp.mean(jnp.array([
                 jac.T @ 
