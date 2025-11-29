@@ -37,12 +37,8 @@ def fisher_calculation(f_n, jvp, y, loss_grad_fn, vec):
     Returns:
         The unscaled fisher matrix vector poduct for one datum
     """
-    #print("f_n.shape =?= (n, o) ", f_n.shape)
-    #print("vec =?= PyTree(Array(1,0,0,...)) ", vec)
-    #print("y.shape =?= (n, o) ", y.shape)
-
+    
     grad = loss_grad_fn(f_n, y)[:, None]
-    #print("grad.shape =?= (n, o) ", grad.shape)
     vjp = jax.linear_transpose(jvp, vec)
 
     Jv = jvp(vec)
@@ -118,11 +114,11 @@ def create_empirical_fisher_mv_without_data(
             loss_grad_fn_vmapped = jax.vmap(loss_grad_fn)
             grads = loss_grad_fn_vmapped(f_ns, ys)
 
-            Jv      = jvp(vec)      # (n,o)
-            GtJv    = jnp.einsum("no,no->n",    grads, Jv)       # (n,)
-            GGtJv = jnp.einsum("n,no->no",    GtJv, grads)     # (n,o)
+            Jv      = jvp(vec)
+            GtJv    = jnp.einsum("no,no->n",    grads, Jv)
+            GGtJv = jnp.einsum("n,no->no",    GtJv, grads)
             fisher = jvp_t(GGtJv) # implicity sums over batch dim
-            return mul(1./len(xs), fisher)
+            return mul(1./len(xs), fisher) # divide by batch len to get mean
 
         if vmap_over_data:
             msg = "vmap_over_data=True could not find a leading batch dimension"
