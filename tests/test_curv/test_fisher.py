@@ -96,7 +96,7 @@ def case_single_datum():
 
 def test_emp_fisher_single_datum(case_single_datum):
     case = case_single_datum
-    case.fisher_manual
+
     fisher_mv = create_empirical_fisher_mv(
         model_fn=case.fn,
         params=case.params,
@@ -107,22 +107,22 @@ def test_emp_fisher_single_datum(case_single_datum):
     fisher_laplax = case.construct_fisher(fisher_mv)
     assert jnp.allclose(fisher_laplax, case.fisher_manual)
 
-@pytest.mark.skip
+
 @pytest_cases.parametrize_with_cases("case", cases=[cases])
 def test_emp_fisher_without_data_vmap(case):
-    case.fisher_manual
-    #fisher_mv = create_empirical_fisher_mv(
-    #    model_fn=case.fn,
-    #    params=case.params,
-    #    data=case.data,
-    #    loss_fn=case.loss,
-    #    vmap_over_data=False,
-    #)
-    #fisher_laplax = case.construct_fisher(fisher_mv)
+    case.handle_batches = True
+    fisher_mv = create_empirical_fisher_mv(
+        model_fn=case.fn,
+        params=case.params,
+        data=case.data,
+        loss_fn=case.loss,
+        vmap_over_data=False,
+    )
+    fisher_laplax = case.construct_fisher(fisher_mv)
     
-    #assert jnp.allclose(fisher_laplax, case.fisher_manual)
+    assert jnp.allclose(fisher_laplax, case.fisher_manual)
 
-@pytest.mark.skip
+
 def test_emp_fisher_with_pytree_params():
     # Can not ue FisherCase class here because it only supports array parameters
     def fn(input, params):
@@ -197,10 +197,10 @@ def case_CE():
         return jnp.array([
             params[0] * input + params[1],
             params[2] * input + params[3],
-        ]).mT
+        ])
 
     def CE(fn, y):
-        return (fn[:,y] - jnp.logaddexp(fn[:,0], fn[:,1]))
+        return (fn[y] - jnp.logaddexp(fn[0], fn[1])).sum(axis=-1)
 
     return FisherCase(
         n = 3,
@@ -217,7 +217,7 @@ def case_CE():
         loss = CE
         )
 
-@pytest.mark.skip
+
 def test_cross_entropy_loss(case_CE):
     fisher_mv = create_empirical_fisher_mv(
         model_fn=case_CE.fn,
