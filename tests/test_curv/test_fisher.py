@@ -73,6 +73,7 @@ def test_emp_fisher(case):
 
     assert jnp.allclose(fisher_laplax, case.fisher_manual)
 
+
 @pytest.fixture
 def case_single_datum():
     def fn(input, params):
@@ -96,6 +97,7 @@ def case_single_datum():
         params=jnp.array([1.7, 2.3, -0.5, -1]),
         loss=lambda fn, y: ((fn - y) ** 2).sum(axis=-1),
     )
+
 
 def test_emp_fisher_single_datum(case_single_datum):
     case = case_single_datum
@@ -123,6 +125,7 @@ def test_emp_fisher_without_data_vmap(case):
     )
     fisher_laplax = case.construct_fisher(fisher_mv)
     assert jnp.allclose(fisher_laplax, case.fisher_manual)
+
 
 def test_emp_fisher_with_pytree_params():
     # Can not ue FisherCase class here because it only supports array parameters
@@ -217,6 +220,7 @@ def case_CE():
         loss=CE,
     )
 
+
 def test_cross_entropy_loss(case_CE):
     fisher_mv = create_empirical_fisher_mv(
         model_fn=case_CE.fn,
@@ -249,7 +253,6 @@ def test_BCE_samples():
     f_n = jnp.array(0.6, dtype=float)
     samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, f_n, 4, key)
     assert samples.shape == (4, 1)
-
 
 
 def test_MC_fisher():

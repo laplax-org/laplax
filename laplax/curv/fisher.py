@@ -1,7 +1,6 @@
 """Fisher Matrix Vector Product."""
 
 from collections.abc import Callable
-from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -38,18 +37,17 @@ def _fisher_calculation(f_ns, jvp, ys, loss_grad_fn, vec):
     Returns:
         The unscaled Fisher matrix vector poduct
     """
+
     def _jvp(vec):
         return jnp.atleast_2d(jvp(vec))
 
     vjp = jax.linear_transpose(_jvp, vec)
     if ys.ndim == 1:
         # no batch or mc_samples dim
-        assert f_ns.ndim == 1
-        grads = jnp.expand_dims(loss_grad_fn(f_ns, ys), axis=(0,1))
+        grads = jnp.expand_dims(loss_grad_fn(f_ns, ys), axis=(0, 1))
 
     elif ys.ndim == 3:
         # batch and mc_sample dim
-        assert f_ns.dim == 2
         f_ns_expanded = jnp.expand_dims(f_ns, 1)
         grads = loss_grad_fn(f_ns_expanded, ys)
 
@@ -57,13 +55,11 @@ def _fisher_calculation(f_ns, jvp, ys, loss_grad_fn, vec):
         # mc_samples dim, but no batch dim
         f_ns_expanded = jnp.expand_dims(f_ns, 0)
         grads = jnp.expand_dims(loss_grad_fn(f_ns_expanded, ys), axis=0)
-    elif f_ns.ndim == 2:
+    else:
         # batch dim, but no mc_samples dim
         grads = jnp.expand_dims(loss_grad_fn(f_ns, ys), 1)
-    else:
-        assert False
     Jv = _jvp(vec)
-    
+
     GtJv = jnp.einsum("nmo,no->nm", grads, Jv)
     GGtJv = jnp.einsum("nm,nmo->no", GtJv, grads)
     JtGGtJv = vjp(GGtJv)[0]
@@ -155,11 +151,11 @@ def create_empirical_fisher_mv_without_data(
         # Calculate forward pass and its derivative
         f_ns, jvp = jax.linearize(lambda p: model_fn(xs, p), params)
         fisher = _fisher_calculation(f_ns, jvp, ys, grad_fn, vec)
-        
+
         if divide_by_n:
             n = len(data["input"])
             fisher = mul(1.0 / n, fisher)
-            
+
         return mul(factor, fisher)
 
     return empirical_fisher_mv
@@ -293,20 +289,6 @@ def create_MC_fisher_mv_without_data(
         In this case, the passed model_fn must accept batches of data.
     """
     def mc_fisher_mv(vec, data, key):
-        fisher_calculation_partial = partial(
-            _fisher_calculation, model_fn=model_fn, params=params, vec=vec
-        )
-        #def mc_fisher_single_datum(datum, key):
-        #    x = datum["input"]
-        #    # Calculate forward pass and its derivative
-        #    f_n, jvp = jax.linearize(lambda p: model_fn(x, p), params)
-
-        #    def mc_fisher_single_label(y_sample):
-        #        return _fisher_calculation(f_n, jvp, y_sample, loss_grad_fn, vec)
-
-        #    y_samples = sample_likelihood(loss_fn, f_n, mc_samples, key)
-        #    vmap = jax.vmap(mc_fisher_single_label)(y_samples)
-        #    return mean(vmap, axis=0)  # over mc_samples dimension
         if vmap_over_data:
             if not data["input"].ndim > 1:
                 msg = "vmap_over_data=True could not find a leading batch dimension"
@@ -320,10 +302,10 @@ def create_MC_fisher_mv_without_data(
                 f_n, jvp = jax.linearize(lambda p: model_fn(x, p), params)
                 y_samples = sample_likelihood(loss_fn, f_n, mc_samples, key)
                 return _fisher_calculation(f_n, jvp, y_samples, grad_fn, vec)
-            
+
             vmap = jax.vmap(fisher_calculation_for_vmap)(data, keys)
             fisher = mean(vmap, axis=0)  # over batch dimension
-            fisher = mul(1./mc_samples, fisher)
+            fisher = mul(1.0 / mc_samples, fisher)
 
         return mul(factor, fisher)
 
