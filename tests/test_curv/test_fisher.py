@@ -73,7 +73,6 @@ def test_emp_fisher(case):
 
     assert jnp.allclose(fisher_laplax, case.fisher_manual)
 
-
 @pytest.fixture
 def case_single_datum():
     def fn(input, params):
@@ -97,7 +96,6 @@ def case_single_datum():
         params=jnp.array([1.7, 2.3, -0.5, -1]),
         loss=lambda fn, y: ((fn - y) ** 2).sum(axis=-1),
     )
-
 
 def test_emp_fisher_single_datum(case_single_datum):
     case = case_single_datum
@@ -125,7 +123,6 @@ def test_emp_fisher_without_data_vmap(case):
     )
     fisher_laplax = case.construct_fisher(fisher_mv)
     assert jnp.allclose(fisher_laplax, case.fisher_manual)
-
 
 def test_emp_fisher_with_pytree_params():
     # Can not ue FisherCase class here because it only supports array parameters
@@ -190,7 +187,6 @@ def test_emp_fisher_with_pytree_params():
         ]),
         axis=0,
     )
-
     assert jnp.allclose(fisher_laplax, fisher_manual)
 
 
@@ -220,7 +216,6 @@ def case_CE():
         params=jnp.array([1.0, 0.5, -1.0, 0.5]),
         loss=CE,
     )
-
 
 def test_cross_entropy_loss(case_CE):
     fisher_mv = create_empirical_fisher_mv(
@@ -256,7 +251,7 @@ def test_BCE_samples():
     assert samples.shape == (4, 1)
 
 
-@pytest.mark.skip
+
 def test_MC_fisher():
     def fn(input, params):
         return jnp.array([
@@ -279,7 +274,7 @@ def test_MC_fisher():
         data=data,
         loss_fn=LossFn.MSE,
         vmap_over_data=True,
-        mc_samples=1,
+        mc_samples=10,
         key=key,
     )
 
