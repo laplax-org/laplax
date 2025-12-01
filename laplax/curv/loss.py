@@ -1,8 +1,11 @@
 """Loss Gradients and Hessians."""
 
 from collections.abc import Callable
+from functools import partial
 
 import jax
+from jax import vmap
+import jax.numpy as jnp
 
 from laplax.curv.hessian import hvp
 from laplax.enums import LossFn
@@ -18,6 +21,7 @@ from laplax.types import (
 def _binary_cross_entropy_gradient(
     f: PredArray,
     y: TargetArray,
+    handle_batches: bool,
     **kwargs: Kwargs,
 ) -> Num[Array, "..."]:
     r"""Compute the Gradient of the binary cross entropy loss w.r.t. the prediction.
@@ -34,12 +38,14 @@ def _binary_cross_entropy_gradient(
     Args:
         f: Model predictions (logits).
         y: Ground truth labels.
+        handle_batches: Whether to do the computation for a batch of fs and ys
         **kwargs: Additional arguments (ignored).
 
     Returns:
         Gradient of the binary cross entropy loss at f.
     """
     del kwargs
+    del handle_batches # Is implicitly handled by jnp
     p = jax.nn.sigmoid(f)
     return p - y
 
@@ -79,6 +85,7 @@ def _binary_cross_entropy_hessian_mv(
 def _cross_entropy_gradient(
     f: PredArray,
     y: TargetArray,
+    handle_batches: bool,
     **kwargs: Kwargs,
 ) -> Num[Array, "..."]:
     r"""Compute the Gradient of the cross entropy loss w.r.t. the prediction.
@@ -95,6 +102,7 @@ def _cross_entropy_gradient(
     Args:
         f: Model predictions (logits).
         y: Ground truth label.
+        handle_batches: Whether to do the computation for a batch of fs and ys
         **kwargs: Additional arguments (ignored).
 
     Returns:
@@ -102,8 +110,12 @@ def _cross_entropy_gradient(
 
     """
     del kwargs
-    p = jax.nn.softmax(f)
-    p = p.at[y].subtract(1)
+    if handle_batches == False:
+        p = jax.nn.softmax(f)
+        p = p.at[y].subtract(1)
+    else:
+        p = jax.nn.softmax(f, axis=-1)
+        p = p.at[jnp.arange(len(p)),y].subtract(1)
     return p
 
 
@@ -144,6 +156,7 @@ def _cross_entropy_hessian_mv(
 def _mse_gradient(
     f: PredArray,
     y: TargetArray,
+    handle_batches: bool,
     **kwargs: Kwargs,
 ) -> Num[Array, "..."]:
     r"""Compute the Gradient of the mean squared error loss w.r.t. the prediction.
@@ -157,6 +170,7 @@ def _mse_gradient(
     Args:
         f: Model predictions.
         y: Ground truth labels.
+        handle_batches: Whether to do the computation for a batch of fs and ys
         **kwargs: Additional arguments (ignored).
 
     Returns:
@@ -164,6 +178,7 @@ def _mse_gradient(
 
     """
     del kwargs
+    del handle_batches # Implicitly handled by jnp
     return 2 * (f - y)
 
 
@@ -200,7 +215,7 @@ def fetch_loss_gradient_fn(
     | Callable[[PredArray, TargetArray], Num[Array, "..."]]
     | None,
     loss_gradient_fn: Callable | None,
-    handle_batches: False,
+    handle_batches: bool = False,
     **kwargs: Kwargs,
 ) -> Callable[[PredArray, TargetArray], Num[Array, "..."]]:
     r"""Fetch a loss gradient function from the given arguments.
@@ -244,27 +259,30 @@ def fetch_loss_gradient_fn(
         raise ValueError(msg)
 
     if loss_gradient_fn is None:
+        if isinstance(loss_fn, Callable):
+            grad = jax.grad(loss_fn, argnums=0)
+            if handle_batches:
+                grad = vmap(grad)
+            return grad
+
         if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
-            loss_gradient_fn = _binary_cross_entropy_gradient
+            loss_grad_fn = _binary_cross_entropy_gradient
 
         elif loss_fn == LossFn.CROSS_ENTROPY:
-            loss_gradient_fn = _cross_entropy_gradient
+            loss_grad_fn = _cross_entropy_gradient
 
         elif loss_fn == LossFn.MSE:
-            loss_gradient_fn = _mse_gradient
+            loss_grad_fn = _mse_gradient
 
         # Does not support LossFn.None because identity is not scalar-valued,
         # so there exists no gradient
 
-        elif isinstance(loss_fn, Callable):
-            grad = jax.grad(loss_fn, argnums=0)
-            loss_gradient_fn = grad
-
         else:
             msg = f"Unsupported loss function '{loss_fn}' provided"
             raise ValueError(msg)
+        loss_grad_fn = partial(loss_grad_fn, handle_batches=handle_batches)
 
-    return loss_gradient_fn
+    return loss_grad_fn
 
 
 def create_loss_hessian_mv(
