@@ -200,6 +200,7 @@ def fetch_loss_gradient_fn(
     | Callable[[PredArray, TargetArray], Num[Array, "..."]]
     | None,
     loss_gradient_fn: Callable | None,
+    handle_batches: False,
     **kwargs: Kwargs,
 ) -> Callable[[PredArray, TargetArray], Num[Array, "..."]]:
     r"""Fetch a loss gradient function from the given arguments.
@@ -218,10 +219,13 @@ def fetch_loss_gradient_fn(
             - A custom callable loss function that takes predictions and targets.
 
         loss_gradient_fn: Custom precomputed loss gradient to use.
+        handle_batches: Whether the loss gradient function should handle batches 
         **kwargs: Unused keyword arguments.
 
     Returns:
-        A function that computes the gradient loss given predictions and ground truth.
+        A function that computes the gradient loss given predictions and targets.
+        If 'handle_batches'=True, takes batches of predictions and targets and returns a
+        batch of gradients
 
     Raises:
         ValueError: If both `loss_fn` and `loss_gradient_fn` are provided.
