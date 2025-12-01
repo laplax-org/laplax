@@ -1,6 +1,7 @@
 """Fisher Matrix Vector Product."""
 
 from collections.abc import Callable
+from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -120,24 +121,24 @@ def create_empirical_fisher_mv_without_data(
         if vmap_over_data:
             msg = "vmap_over_data=True could not find a leading batch dimension"
             assert data["input"].ndim > 1, msg
-            loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
-            emp_fisher_single_datum = partial(emp_fisher_single_datum, Placeholder, loss_grad_fn)
+            grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
+            emp_fisher_single_datum = partial(emp_fisher_single_datum, loss_grad_fn=grad_fn)
             vmap = jax.vmap(emp_fisher_single_datum)(data)
             fisher = mean(vmap, axis=0)  # over batch dimension
         else:
             if data["input"].ndim == 1:
                 # No leading batch dim => Calculate for single datum
-                loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
-                fisher = emp_fisher_single_datum(data, loss_grad_fn)
+                grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
+                fisher = emp_fisher_single_datum(data, grad_fn)
             elif data["input"].shape[0] == 1:
                 # Only one datum in batch
                 datum = {"input": data["input"][0], "target": data["target"][0]}
-                loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
-                fisher = emp_fisher_single_datum(datum, loss_grad_fn)
+                grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
+                fisher = emp_fisher_single_datum(datum, grad_fn)
             else:
                 # Handle batch dimension of data explicitly
-                loss_grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, handle_batches=True)
-                fisher = emp_fisher_multiple_data(data, loss_grad_fn)
+                grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, handle_batches=True)
+                fisher = emp_fisher_multiple_data(data, grad_fn)
         return mul(factor, fisher)
 
     return empirical_fisher_mv
