@@ -27,12 +27,12 @@ def _fisher_calculation(model_fn, params, xs, ys, loss_grad_fn, vec):
     \text{jvp}^\top (\text{grad}(\text{grad}^\top(\text{jvp}(\text{vec}))))
     $$
     where 'grad' is the gradient of the loss function evalutated at 'f_n' and 'y'.
-    
+
     Args:
         model_fn: models forward function
         params: model parameters
         xs: model input
-        ys: The labels to use 
+        ys: The labels to use
         loss_grad_fn: The gradient of the loss function
         vec: A PyTree that can be consumed by jvp
 
@@ -40,8 +40,11 @@ def _fisher_calculation(model_fn, params, xs, ys, loss_grad_fn, vec):
         The unscaled Fisher matrix vector poduct
     """
     # Calculate forward pass and its derivative
-    f_ns, _jvp = jax.linearize(lambda p: model_fn(xs, p), params)
-    jvp = lambda vec: jnp.atleast_2d(_jvp(vec))
+    f_ns, jvp_ = jax.linearize(lambda p: model_fn(xs, p), params)
+
+    def jvp(vec):
+        return jnp.atleast_2d(jvp_(vec))
+
     vjp = jax.linear_transpose(jvp, vec)
 
     grads = jnp.atleast_2d(loss_grad_fn(f_ns, ys))
@@ -94,48 +97,50 @@ def create_empirical_fisher_mv_without_data(
 
     Note:
         If vmap_over_data is true (default), the computation is vmapped over the batch
-        of data. If the computation should be performed for a singe datum 
+        of data. If the computation should be performed for a singe datum
         (or a singleton batch dimension), pass 'vmap_over_data'=False.
-        If 'vmap_over_data'=False and a non-singleton batch dimension is passed, 
-        the batch dimension is handled explicitly. 
-        In this case, the passed model_fn and (optional) loss_grad_fn 
+        If 'vmap_over_data'=False and a non-singleton batch dimension is passed,
+        the batch dimension is handled explicitly.
+        In this case, the passed model_fn and (optional) loss_grad_fn
         must accept batches of data.
 
     """
+
     def empirical_fisher_mv(vec, data):
-        fisher_calculation_partial = partial(_fisher_calculation, 
-        model_fn=model_fn, 
-        params=params,
-        vec=vec)
+        fisher_calculation_partial = partial(
+            _fisher_calculation, model_fn=model_fn, params=params, vec=vec
+        )
 
         if vmap_over_data:
-            msg = "vmap_over_data=True could not find a leading batch dimension"
-            assert data["input"].ndim > 1, msg
+            if not data["input"].ndim > 1:
+                msg = "vmap_over_data=True could not find a leading batch dimension"
+                raise ValueError(msg)
             grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
+
             def fisher_calculation_for_vmap(datum):
                 xs, ys = datum["input"], datum["target"]
                 return fisher_calculation_partial(xs=xs, ys=ys, loss_grad_fn=grad_fn)
 
             vmap = jax.vmap(fisher_calculation_for_vmap)(data)
             fisher = mean(vmap, axis=0)  # over batch dimension
+        elif data["input"].ndim == 1:
+            # No leading batch dim => Calculate for single datum
+            x, y = data["input"], data["target"]
+            grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
+            fisher = fisher_calculation_partial(xs=x, ys=y, loss_grad_fn=grad_fn)
+        elif data["input"].shape[0] == 1:
+            # Only one datum in batch
+            x, y = data["input"][0], data["target"][0]
+            grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
+            fisher = fisher_calculation_partial(xs=x, ys=y, loss_grad_fn=grad_fn)
         else:
-            if data["input"].ndim == 1:
-                # No leading batch dim => Calculate for single datum
-                x, y = data["input"], data["target"]
-                grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
-                fisher = fisher_calculation_partial(xs = x, ys = y, loss_grad_fn=grad_fn)
-            elif data["input"].shape[0] == 1:
-                # Only one datum in batch
-                x, y = data["input"][0], data["target"][0]
-                grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
-                fisher = fisher_calculation_partial(xs=x, ys=y, loss_grad_fn=grad_fn)
-            else:
-                # Handle batch dimension of data explicitly
-                x, y = data["input"], data["target"]
-                grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, handle_batches=True)
-                fisher = fisher_calculation_partial(xs = x, ys = y, loss_grad_fn=grad_fn)
-                fisher = mul(1./len(data["input"]), fisher) # divide by batch len to get mean
-        
+            # Handle batch dimension of data explicitly
+            x, y = data["input"], data["target"]
+            grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, handle_batches=True)
+            fisher = fisher_calculation_partial(xs=x, ys=y, loss_grad_fn=grad_fn)
+            n = len(data["input"])
+            fisher = mul(1.0 / n, fisher)  # divide by batch len to get mean
+
         return mul(factor, fisher)
 
     return empirical_fisher_mv
@@ -263,24 +268,22 @@ def create_MC_fisher_mv_without_data(
     Note:
         The function assumes as a default that the data has a batch dimension.
     """
+    del vmap_over_data
     loss_grad_fn = fetch_loss_gradient_fn(loss_fn, None, vmap_over_data=False)
 
-            
     def mc_fisher_mv(vec, data, key):
-
         def mc_fisher_single_datum(datum, key):
             x = datum["input"]
             # Calculate forward pass and its derivative
             f_n, jvp = jax.linearize(lambda p: model_fn(x, p), params)
 
             def mc_fisher_single_label(y_sample):
-                return fisher_calculation(f_n, jvp, y_sample, loss_grad_fn, vec)
-                
+                return _fisher_calculation(f_n, jvp, y_sample, loss_grad_fn, vec)
 
             y_samples = sample_likelihood(loss_fn, f_n, mc_samples, key)
             vmap = jax.vmap(mc_fisher_single_label)(y_samples)
-            return mean(vmap, axis=0) # over mc_samples dimension
-        
+            return mean(vmap, axis=0)  # over mc_samples dimension
+
         batch_size = data["input"].shape[0]
         keys = jax.random.split(key, batch_size)
         vmap = jax.vmap(mc_fisher_single_datum)(data, keys)
@@ -294,7 +297,7 @@ def sample_likelihood(loss_fn, f_n, mc_samples, key):
     # sample mc_samples values $\tilde{y} from e^{-\text{loss_fn}(y, f_n)}$
     if loss_fn == LossFn.MSE:
         unit_samples = jax.random.normal(key, shape=(mc_samples, *(f_n.shape)))
-        return unit_samples + f_n[None,...]
+        return unit_samples + f_n[None, ...]
 
     if loss_fn == LossFn.CROSS_ENTROPY:
         return jax.random.categorical(key, f_n, shape=(mc_samples, 1), replace=True)

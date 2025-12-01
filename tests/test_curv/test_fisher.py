@@ -1,5 +1,7 @@
 import jax
 import jax.numpy as jnp
+import pytest
+import pytest_cases
 
 from laplax.curv.fisher import (
     create_empirical_fisher_mv,
@@ -9,48 +11,49 @@ from laplax.curv.fisher import (
 from laplax.enums import LossFn
 from laplax.util.flatten import full_flatten
 
-import pytest
 from .cases.fisher import FisherCase
-import pytest_cases
 
 
 def case1():
     return FisherCase(
-    n = 3,
-    o = 1,
-    i = 1,
-    l = 1,
-    p = 3,
-    fn = lambda input, params: params[0] * input**2 + params[1] * input + params[2],
-    data = {
-        "input": jnp.array([-1.0, 0.7, 1.3]).reshape(3,1),
-        "target": jnp.array([1.25, -0.11, 0.79]).reshape(3,1),
+        n=3,
+        o=1,
+        i=1,
+        l=1,
+        p=3,
+        fn=lambda input, params: params[0] * input**2 + params[1] * input + params[2],
+        data={
+            "input": jnp.array([-1.0, 0.7, 1.3]).reshape(3, 1),
+            "target": jnp.array([1.25, -0.11, 0.79]).reshape(3, 1),
         },
-    params = jnp.array([1.5, -0.5, -0.25]).reshape(3),
-    loss = lambda fn,y: ((fn - y)**2).sum(axis=-1)
-)
+        params=jnp.array([1.5, -0.5, -0.25]).reshape(3),
+        loss=lambda fn, y: ((fn - y) ** 2).sum(axis=-1),
+    )
+
 
 def case2():
     def fn(input, params):
-        input = jnp.squeeze(input, axis=-1) # get rid of singleton data dimension
+        input = jnp.squeeze(input, axis=-1)  # get rid of singleton data dimension
         return jnp.array([
             params[0] * input**2 + params[1] * input,
             params[2] * input + params[3],
         ])
+
     return FisherCase(
-    n = 3,
-    o = 2,
-    i = 1,
-    l = 2,
-    p = 4,
-    fn = fn,
-    data = {
-        "input": jnp.array([0.3, 0.7, 0.4]).reshape(3, 1),
-        "target": jnp.array([0.3, 0.7, 0.4, 0.5, 0.3, 0.7]).reshape(3, 2),
-    },
-    params = jnp.array([1.7, 2.3, -0.5, -1]),
-    loss = lambda fn,y: ((fn - y)**2).sum(axis=-1)
-)
+        n=3,
+        o=2,
+        i=1,
+        l=2,
+        p=4,
+        fn=fn,
+        data={
+            "input": jnp.array([0.3, 0.7, 0.4]).reshape(3, 1),
+            "target": jnp.array([0.3, 0.7, 0.4, 0.5, 0.3, 0.7]).reshape(3, 2),
+        },
+        params=jnp.array([1.7, 2.3, -0.5, -1]),
+        loss=lambda fn, y: ((fn - y) ** 2).sum(axis=-1),
+    )
+
 
 @pytest.mark.parametrize("i", [0, 1])
 def cases(i):
@@ -67,31 +70,33 @@ def test_emp_fisher(case):
         vmap_over_data=True,
     )
     fisher_laplax = case.construct_fisher(fisher_mv)
-    
+
     assert jnp.allclose(fisher_laplax, case.fisher_manual)
+
 
 @pytest.fixture
 def case_single_datum():
     def fn(input, params):
-        input = jnp.squeeze(input, axis=-1) # get rid of singleton data dimension
+        input = jnp.squeeze(input, axis=-1)  # get rid of singleton data dimension
         return jnp.array([
             params[0] * input**2 + params[1] * input,
             params[2] * input + params[3],
         ])
+
     return FisherCase(
-    n = 1,
-    o = 2,
-    i = 1,
-    l = 2,
-    p = 4,
-    fn = fn,
-    data = {
-        "input": jnp.array([0.3]).reshape((1,1)),
-        "target": jnp.array([0.3, 0.7]).reshape((1,2)),
-    },
-    params = jnp.array([1.7, 2.3, -0.5, -1]),
-    loss = lambda fn,y: ((fn - y)**2).sum(axis=-1)
-)
+        n=1,
+        o=2,
+        i=1,
+        l=2,
+        p=4,
+        fn=fn,
+        data={
+            "input": jnp.array([0.3]).reshape((1, 1)),
+            "target": jnp.array([0.3, 0.7]).reshape((1, 2)),
+        },
+        params=jnp.array([1.7, 2.3, -0.5, -1]),
+        loss=lambda fn, y: ((fn - y) ** 2).sum(axis=-1),
+    )
 
 
 def test_emp_fisher_single_datum(case_single_datum):
@@ -202,19 +207,19 @@ def case_CE():
         return (fn[y] - jnp.logaddexp(fn[0], fn[1])).sum(axis=-1)
 
     return FisherCase(
-        n = 3,
-        o = 2,
-        i = 1,
-        l = 1,
-        p = 4,
-        fn = fn,
-        data = {
+        n=3,
+        o=2,
+        i=1,
+        l=1,
+        p=4,
+        fn=fn,
+        data={
             "input": jnp.array([-1.0, 0.7, -0.5]).reshape(3, 1),
             "target": jnp.array([0, 1, 0]).reshape(3, 1),
-            },
-        params = jnp.array([1.0, 0.5, -1.0, 0.5]),
-        loss = CE
-        )
+        },
+        params=jnp.array([1.0, 0.5, -1.0, 0.5]),
+        loss=CE,
+    )
 
 
 def test_cross_entropy_loss(case_CE):
@@ -226,7 +231,7 @@ def test_cross_entropy_loss(case_CE):
         vmap_over_data=True,
     )
     fisher_laplax = case_CE.construct_fisher(fisher_mv)
-    
+
     assert jnp.allclose(fisher_laplax, case_CE.fisher_manual)
 
 
@@ -234,21 +239,22 @@ def test_MSE_samples():
     key = jax.random.key(42)
     f_n = jnp.arange(5, dtype=float)
     samples = sample_likelihood("mse", f_n, 4, key)
-    assert samples.shape == (4,5)
+    assert samples.shape == (4, 5)
 
 
 def test_CE_samples():
     key = jax.random.key(42)
     f_n = jnp.arange(10, dtype=float)
     samples = sample_likelihood(LossFn.CROSS_ENTROPY, f_n, 4, key)
-    assert samples.shape == (4,1)
+    assert samples.shape == (4, 1)
 
 
 def test_BCE_samples():
     key = jax.random.key(42)
     f_n = jnp.array(0.6, dtype=float)
     samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, f_n, 4, key)
-    assert samples.shape == (4,1)
+    assert samples.shape == (4, 1)
+
 
 @pytest.mark.skip
 def test_MC_fisher():

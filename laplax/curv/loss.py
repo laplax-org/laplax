@@ -4,8 +4,8 @@ from collections.abc import Callable
 from functools import partial
 
 import jax
-from jax import vmap
 import jax.numpy as jnp
+from jax import vmap
 
 from laplax.curv.hessian import hvp
 from laplax.enums import LossFn
@@ -45,7 +45,7 @@ def _binary_cross_entropy_gradient(
         Gradient of the binary cross entropy loss at f.
     """
     del kwargs
-    del handle_batches # Is implicitly handled by jnp
+    del handle_batches  # Is implicitly handled by jnp
     p = jax.nn.sigmoid(f)
     return p - y
 
@@ -110,12 +110,12 @@ def _cross_entropy_gradient(
 
     """
     del kwargs
-    if handle_batches == False:
+    if not handle_batches:
         p = jax.nn.softmax(f)
         p = p.at[y].subtract(1)
     else:
         p = jax.nn.softmax(f, axis=-1)
-        p = p.at[jnp.arange(len(p)),y].subtract(1)
+        p = p.at[jnp.arange(len(p)), y].subtract(1)
     return p
 
 
@@ -178,7 +178,7 @@ def _mse_gradient(
 
     """
     del kwargs
-    del handle_batches # Implicitly handled by jnp
+    del handle_batches  # Implicitly handled by jnp
     return 2 * (f - y)
 
 
@@ -215,6 +215,7 @@ def fetch_loss_gradient_fn(
     | Callable[[PredArray, TargetArray], Num[Array, "..."]]
     | None,
     loss_gradient_fn: Callable | None,
+    *,
     handle_batches: bool = False,
     **kwargs: Kwargs,
 ) -> Callable[[PredArray, TargetArray], Num[Array, "..."]]:
@@ -234,7 +235,7 @@ def fetch_loss_gradient_fn(
             - A custom callable loss function that takes predictions and targets.
 
         loss_gradient_fn: Custom precomputed loss gradient to use.
-        handle_batches: Whether the loss gradient function should handle batches 
+        handle_batches: Whether the loss gradient function should handle batches
         **kwargs: Unused keyword arguments.
 
     Returns:
