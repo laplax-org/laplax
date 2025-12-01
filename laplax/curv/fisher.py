@@ -288,6 +288,7 @@ def create_MC_fisher_mv_without_data(
         the batch dimension is handled explicitly.
         In this case, the passed model_fn must accept batches of data.
     """
+
     def mc_fisher_mv(vec, data, key):
         if vmap_over_data:
             if not data["input"].ndim > 1:
