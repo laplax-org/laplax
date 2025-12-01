@@ -27,7 +27,7 @@ def test_single_binary_cross_entropy_loss_gradient():
 
     # Set loss gradient via laplax
     grad_fn_laplax = fetch_loss_gradient_fn(
-        LossFn.BINARY_CROSS_ENTROPY, None, vmap_over_data=False
+        LossFn.BINARY_CROSS_ENTROPY, None, handle_batches=False
     )
     grad_laplax = grad_fn_laplax(logits, target)
     assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
@@ -50,7 +50,7 @@ def test_binary_cross_entropy_loss_gradient_vmap():
 
     # Set loss gradient via laplax
     grad_fn_laplax = fetch_loss_gradient_fn(
-        LossFn.BINARY_CROSS_ENTROPY, None, vmap_over_data=True
+        LossFn.BINARY_CROSS_ENTROPY, None, handle_batches=False
     )
     grad_laplax = grad_fn_laplax(logits, target)
 
@@ -71,16 +71,16 @@ def test_cross_entropy_loss_gradient():
     )(logits, target)  # (3)
 
     # Set loss gradient via laplax
-    grad_fn_laplax = fetch_loss_gradient_fn("cross_entropy", None, vmap_over_data=False)
+    grad_fn_laplax = fetch_loss_gradient_fn("cross_entropy", None, handle_batches=False)
     grad_laplax = grad_fn_laplax(logits, target)
 
     assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
 
 
-def test_cross_entropy_loss_gradient_vmap():
+def test_cross_entropy_loss_gradient_batched():
     key = jax.random.key(0)
-    target = jnp.zeros(5, dtype=int)
-    target.at[3].set(2)
+    targets = jnp.zeros(5, dtype=int)
+    targets.at[3].set(2)
     logits = jax.random.normal(key, (5, 3))
 
     # Set loss gradient via autodiff
@@ -88,17 +88,17 @@ def test_cross_entropy_loss_gradient_vmap():
         jax.grad(
             optax.softmax_cross_entropy_with_integer_labels,
         )
-    )(logits, target)  # (5,3)
+    )(logits, targets)  # (5,3)
 
     # Set loss gradient via laplax
-    grad_fn_laplax = fetch_loss_gradient_fn("cross_entropy", None, vmap_over_data=True)
-    grad_laplax = grad_fn_laplax(logits, target)
+    grad_fn_laplax = fetch_loss_gradient_fn("cross_entropy", None, handle_batches=True)
+    grad_laplax = grad_fn_laplax(logits, targets)
     assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
 
 
-def test_mean_sqared_error_loss_gradient_vmap():
+def test_mean_sqared_error_loss_gradient_batched():
     key = jax.random.key(0)
-    target = jnp.zeros((5, 3))
+    targets = jnp.zeros((5, 3))
     values = jax.random.normal(key, (5, 3))
 
     # Set loss gradient via autodiff
@@ -106,19 +106,19 @@ def test_mean_sqared_error_loss_gradient_vmap():
         jax.grad(
             lambda pred, target: jnp.sum((pred - target) ** 2),
         )
-    )(values, target)  # (5,3)
+    )(values, targets)  # (5,3)
 
     # Set loss gradient via laplax
-    grad_fn_laplax = fetch_loss_gradient_fn(LossFn.MSE, None, vmap_over_data=True)
-    grad_laplax = grad_fn_laplax(values, target)
+    grad_fn_laplax = fetch_loss_gradient_fn(LossFn.MSE, None, handle_batches=True)
+    grad_laplax = grad_fn_laplax(values, targets)
     assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
 
 
 def test_callable_loss_gradient():
     key = jax.random.key(0)
     keys = jax.random.split(key, 3)
-    pred = jax.random.normal(keys[0], (10, 3))
-    target = jax.random.normal(keys[1], (10, 3))
+    preds = jax.random.normal(keys[0], (10, 3))
+    targets = jax.random.normal(keys[1], (10, 3))
 
     # Set random loss function
     random_arr = jax.random.normal(keys[2], (3,))
@@ -127,11 +127,11 @@ def test_callable_loss_gradient():
         return jnp.sum(random_arr @ (pred - target) ** 3)
 
     # Set loss hessian via autodiff
-    grad_autodiff = jax.vmap(jax.grad(loss_func))(pred, target)
+    grad_autodiff = jax.vmap(jax.grad(loss_func))(preds, targets)
 
     # Set loss hessian via laplax mv
-    grad_fn = fetch_loss_gradient_fn(loss_func, None, vmap_over_data=True)
-    grad_laplax = grad_fn(pred, target)
+    grad_fn = fetch_loss_gradient_fn(loss_func, None, handle_batches=True)
+    grad_laplax = grad_fn(preds, targets)
 
     assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
 
