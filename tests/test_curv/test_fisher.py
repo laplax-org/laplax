@@ -234,25 +234,37 @@ def test_cross_entropy_loss(case_CE):
     assert jnp.allclose(fisher_laplax, case_CE.fisher_manual)
 
 
+KEY = jax.random.key(42)
+
 def test_MSE_samples():
-    key = jax.random.key(42)
     f_n = jnp.arange(5, dtype=float)
-    samples = sample_likelihood("mse", f_n, 4, key)
+    samples = sample_likelihood("mse", f_n, 4, KEY)
     assert samples.shape == (4, 5)
 
-
-def test_CE_samples():
-    key = jax.random.key(42)
-    f_n = jnp.arange(10, dtype=float)
-    samples = sample_likelihood(LossFn.CROSS_ENTROPY, f_n, 4, key)
-    assert samples.shape == (4, 1)
-
+def test_MSE_samples_batch():
+    f_ns = jnp.arange(30, dtype=float).reshape((5,6))
+    samples = sample_likelihood("mse", f_ns, 4, KEY)
+    assert samples.shape == (5,4,6)
 
 def test_BCE_samples():
-    key = jax.random.key(42)
-    f_n = jnp.array(0.6, dtype=float)
-    samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, f_n, 4, key)
+    f_n = jnp.array(0.6, dtype=float).reshape(1)
+    samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, f_n, 4, KEY)
     assert samples.shape == (4, 1)
+
+def test_BCE_samples_batch():
+    f_ns = jax.random.uniform(KEY, (3,1))
+    samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, f_ns, 4, KEY)
+    assert samples.shape == (3, 4, 1)
+
+def test_CE_samples():
+    f_n = jax.random.uniform(KEY, 10)
+    samples = sample_likelihood(LossFn.CROSS_ENTROPY, f_n, 4, KEY)
+    assert samples.shape == (4, 1)
+
+def test_CE_samples_batch():
+    f_ns = jax.random.uniform(KEY, (6,10))
+    samples = sample_likelihood(LossFn.CROSS_ENTROPY, f_ns, 4, KEY)
+    assert samples.shape == (6,4,1)
 
 
 def test_MC_fisher():

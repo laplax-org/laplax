@@ -328,24 +328,24 @@ def create_MC_fisher_mv_without_data(
         if divide_by_n:
             n = len(data["input"])
             fisher = mul(1.0 / n, fisher)
-
         return mul(factor, fisher)
         
-
     return mc_fisher_mv
 
 
-def sample_likelihood(loss_fn, f_n, mc_samples, key):
+def sample_likelihood(loss_fn, f_ns, mc_samples, key):
     # sample mc_samples values $\tilde{y} from e^{-\text{loss_fn}(y, f_n)}$
+    *n,o = f_ns.shape
     if loss_fn == LossFn.MSE:
-        unit_samples = jax.random.normal(key, shape=(mc_samples, *(f_n.shape)))
-        return unit_samples + f_n[None, ...]
+        unit_samples = jax.random.normal(key, shape=(*n, mc_samples, o))
+        return unit_samples + f_ns[...,None,:]
 
     if loss_fn == LossFn.CROSS_ENTROPY:
-        return jax.random.categorical(key, f_n, shape=(mc_samples, 1), replace=True)
+        f_ns = jnp.expand_dims(f_ns, axis=-2)
+        return jax.random.categorical(key, f_ns, shape=(*n, mc_samples), replace=True)[...,None]
 
     if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
-        bool_samples = jax.random.bernoulli(key, f_n, shape=(mc_samples, 1))
+        bool_samples = jax.random.bernoulli(key, jnp.expand_dims(f_ns, axis=-2), shape=(*n, mc_samples, 1))
         return jnp.astype(bool_samples, jnp.float32)
 
     msg = f"Unsupported LossFn {loss_fn} to sample from."
