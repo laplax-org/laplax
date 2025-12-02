@@ -290,11 +290,11 @@ def create_MC_fisher_mv_without_data(
     """
 
     def mc_fisher_mv(vec, data, key):
+        grad_fn = fetch_loss_gradient_fn(loss_fn, None, handle_batches=True)
         if vmap_over_data:
             if not data["input"].ndim > 1:
                 msg = "vmap_over_data=True could not find a leading batch dimension"
                 raise ValueError(msg)
-            grad_fn = fetch_loss_gradient_fn(loss_fn, None)
             batch_size = data["input"].shape[0]
             keys = jax.random.split(key, batch_size)
 
@@ -307,8 +307,30 @@ def create_MC_fisher_mv_without_data(
             vmap = jax.vmap(fisher_calculation_for_vmap)(data, keys)
             fisher = mean(vmap, axis=0)  # over batch dimension
             fisher = mul(1.0 / mc_samples, fisher)
+            return mul(factor, fisher)
+        
+        divide_by_n = False
+        if data["input"].ndim == 1:
+            # No leading batch dim => Calculate for single datum
+            xs = data["input"]
+
+        elif data["input"].shape[0] == 1:
+            # Only one datum in batch
+            xs = data["input"][0]
+        else:
+            xs = data["input"]
+            divide_by_n = True
+
+        f_ns, jvp = jax.linearize(lambda p: model_fn(x, p), params)
+        y_samples = sample_likelihood(loss_fn, f_ns, mc_samples, key)
+        fisher = _fisher_calculation(f_ns, jvp, y_samples, grad_fn, vec)
+        
+        if divide_by_n:
+            n = len(data["input"])
+            fisher = mul(1.0 / n, fisher)
 
         return mul(factor, fisher)
+        
 
     return mc_fisher_mv
 
