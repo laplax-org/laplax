@@ -308,7 +308,7 @@ def create_MC_fisher_mv_without_data(
             fisher = mean(vmap, axis=0)  # over batch dimension
             fisher = mul(1.0 / mc_samples, fisher)
             return mul(factor, fisher)
-        
+
         divide_by_n = False
         if data["input"].ndim == 1:
             # No leading batch dim => Calculate for single datum
@@ -321,28 +321,29 @@ def create_MC_fisher_mv_without_data(
             xs = data["input"]
             divide_by_n = True
 
-        f_ns, jvp = jax.linearize(lambda p: model_fn(x, p), params)
+        f_ns, jvp = jax.linearize(lambda p: model_fn(xs, p), params)
         y_samples = sample_likelihood(loss_fn, f_ns, mc_samples, key)
+        #jax.debug.print("{}", y_samples.shape)
         fisher = _fisher_calculation(f_ns, jvp, y_samples, grad_fn, vec)
-        
+        fisher = mul(1.0 / mc_samples, fisher)
         if divide_by_n:
             n = len(data["input"])
             fisher = mul(1.0 / n, fisher)
         return mul(factor, fisher)
-        
+
     return mc_fisher_mv
 
 
 def sample_likelihood(loss_fn, f_ns, mc_samples, key):
     # sample mc_samples values $\tilde{y} from e^{-\text{loss_fn}(y, f_n)}$
-    *n,o = f_ns.shape
+    *n, o = f_ns.shape
     if loss_fn == LossFn.MSE:
         unit_samples = jax.random.normal(key, shape=(*n, mc_samples, o))
-        return unit_samples + f_ns[...,None,:]
+        return (unit_samples * jnp.sqrt(0.5) + f_ns[..., None, :])
 
     if loss_fn == LossFn.CROSS_ENTROPY:
         f_ns = jnp.expand_dims(f_ns, axis=-2)
-        return jax.random.categorical(key, f_ns, shape=(*n, mc_samples), replace=True)[...,None]
+        return jax.random.categorical(key, f_ns, shape=(*n, mc_samples), replace=True)[..., None]
 
     if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
         bool_samples = jax.random.bernoulli(key, jnp.expand_dims(f_ns, axis=-2), shape=(*n, mc_samples, 1))
