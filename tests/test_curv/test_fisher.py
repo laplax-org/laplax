@@ -1,15 +1,27 @@
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 import pytest_cases
+import torch
+from curvlinops import EFLinearOperator, FisherMCLinearOperator, GGNLinearOperator
 
 from laplax.curv.fisher import (
     create_empirical_fisher_mv,
     create_MC_fisher_mv,
     sample_likelihood,
 )
+from laplax.curv.ggn import create_ggn_mv
 from laplax.enums import LossFn
 from laplax.util.flatten import full_flatten
+from tests.test_laplace_regression import (
+    trained_laplace_comparison,
+    trained_laplace_comparison_classification,
+    create_pytree_flattener,
+    input_target_split_jax,
+    to_dense,
+    wrap_function,
+)
 
 from .cases.fisher import FisherCase
 
@@ -236,87 +248,187 @@ def test_cross_entropy_loss(case_CE):
 
 KEY = jax.random.key(42)
 
+
 def test_MSE_samples():
     f_n = jnp.arange(5, dtype=float)
     samples = sample_likelihood("mse", f_n, 4, KEY)
     assert samples.shape == (4, 5)
 
+
 def test_MSE_samples_batch():
-    f_ns = jnp.arange(30, dtype=float).reshape((5,6))
+    f_ns = jnp.arange(30, dtype=float).reshape((5, 6))
     samples = sample_likelihood("mse", f_ns, 4, KEY)
-    assert samples.shape == (5,4,6)
+    assert samples.shape == (5, 4, 6)
+
 
 def test_BCE_samples():
     f_n = jnp.array(0.6, dtype=float).reshape(1)
     samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, f_n, 4, KEY)
     assert samples.shape == (4, 1)
 
+
 def test_BCE_samples_batch():
-    f_ns = jax.random.uniform(KEY, (3,1))
+    f_ns = jax.random.uniform(KEY, (3, 1))
     samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, f_ns, 4, KEY)
     assert samples.shape == (3, 4, 1)
+
 
 def test_CE_samples():
     f_n = jax.random.uniform(KEY, 10)
     samples = sample_likelihood(LossFn.CROSS_ENTROPY, f_n, 4, KEY)
     assert samples.shape == (4, 1)
 
+
 def test_CE_samples_batch():
-    f_ns = jax.random.uniform(KEY, (6,10))
+    f_ns = jax.random.uniform(KEY, (6, 10))
     samples = sample_likelihood(LossFn.CROSS_ENTROPY, f_ns, 4, KEY)
-    assert samples.shape == (6,4,1)
+    assert samples.shape == (6, 4, 1)
 
 
-def test_MC_fisher():
-    def fn(input, params):
-        return jnp.array([
-            params["a"][0] * input**3,
-            params["a"][1] ** 2 * input,
-        ]).squeeze()
+def test_emp_fisher_against_curvlinops(trained_laplace_comparison):
+    la_case = trained_laplace_comparison
+    params = [p for p in la_case.torch_model.parameters() if p.requires_grad]
 
-    data = {
-        "input": jnp.array([-1.0, 0.7, 1.3]).reshape(3, 1),
-        "target": jnp.array([-1.5, -0.04, 0.5145, 0.028, 3.295, 0.052]).reshape(3, 2),
-    }
+    torch_mv = EFLinearOperator(
+        la_case.torch_model,
+        torch.nn.MSELoss(),
+        params,
+        [(la_case.X_train, la_case.y_train)],
+    )
+    torch_curv = torch_mv @ torch.eye(torch_mv.shape[0])
 
-    params = {"a": jnp.array([1.5, 0.2])}
-
-    key = jax.random.key(42)
-
-    mc_fisher_mv = create_MC_fisher_mv(
-        model_fn=fn,
-        params=params,
-        data=data,
-        loss_fn=LossFn.MSE,
-        vmap_over_data=True,
-        mc_samples=10,
-        key=key,
+    train_batch = input_target_split_jax(next(iter(la_case.train_loader)))
+    jax_mv = create_empirical_fisher_mv(
+        la_case.nnx_model_fn,
+        la_case.params,
+        train_batch,
+        loss_fn="mse",
+        num_curv_samples=1,
+        num_total_samples=1,
+        vmap_over_data=False,
+    )
+    flatten, unflatten = create_pytree_flattener(la_case.params)
+    jax_curv = to_dense(
+        wrap_function(jax_mv, unflatten, flatten), layout=flatten(la_case.params)
+    )
+    np.testing.assert_allclose(
+        np.sort(jnp.abs(torch_curv).sum(axis=-1))
+        / np.sort(jnp.abs(jax_curv).sum(axis=-1)),
+        1,
+        atol=1e-2,
     )
 
-    mc_fisher_row_1 = full_flatten(mc_fisher_mv({"a": jnp.array([1.0, 0.0])}))
-    mc_fisher_row_2 = full_flatten(mc_fisher_mv({"a": jnp.array([0.0, 1.0])}))
 
-    mc_fisher = jnp.stack((mc_fisher_row_1, mc_fisher_row_2))
+def test_MC_fisher_against_curvlinops(trained_laplace_comparison):
+    la_case = trained_laplace_comparison
+    params = [p for p in la_case.torch_model.parameters() if p.requires_grad]
 
-    emp_fisher_mv = create_empirical_fisher_mv(
-        model_fn=fn,
-        params=params,
-        data=data,
-        loss_fn=LossFn.MSE,
+    torch_mv = FisherMCLinearOperator(
+        la_case.torch_model,
+        torch.nn.MSELoss(),
+        params,
+        [(la_case.X_train, la_case.y_train)],
+        mc_samples=1000,
+    )
+    torch_curv = torch_mv @ torch.eye(torch_mv.shape[0])
+
+    train_batch = input_target_split_jax(next(iter(la_case.train_loader)))
+
+    jax_mv = create_MC_fisher_mv(
+        la_case.nnx_model_fn,
+        la_case.params,
+        train_batch,
+        loss_fn="mse",
+        key=KEY,
+        mc_samples=10000,
+        num_curv_samples=1,
+        num_total_samples=1,
         vmap_over_data=True,
     )
+    flatten, unflatten = create_pytree_flattener(la_case.params)
+    jax_curv = to_dense(
+        wrap_function(jax_mv, unflatten, flatten), layout=flatten(la_case.params)
+    )
+    np.testing.assert_allclose(
+        np.sort(jnp.abs(torch_curv).sum(axis=-1))
+        / np.sort(jnp.abs(jax_curv).sum(axis=-1)),
+        1,
+        atol=1e-2,
+    )
 
-    emp_fisher_row_1 = full_flatten(emp_fisher_mv({"a": jnp.array([1.0, 0.0])}))
-    emp_fisher_row_2 = full_flatten(emp_fisher_mv({"a": jnp.array([0.0, 1.0])}))
 
-    emp_fisher = jnp.stack((emp_fisher_row_1, emp_fisher_row_2))
+def test_MC_fisher_against_curvlinops_BCE(trained_laplace_comparison_classification):
+    la_case = trained_laplace_comparison_classification
+    params = [p for p in la_case.torch_model.parameters() if p.requires_grad]
 
-    assert jnp.linalg.norm(mc_fisher - emp_fisher) < 100  # Very large, see comment
-    # Current behaviour: When params are close to best params
-    # (i.e. f(x) matches true y), the emp_fisher matrix vanishes,
-    # and the mc fisher does this too for small mc_samples.
-    # For larger mc_samples, it diverges.
-    # If params are sub-optimal, the mc fisher converges to a value
-    # that is distinct from that of the emp fisher. This is because
-    # the mean of the MC samples for y converges to f(x),
-    # which is different from y in this case.
+    torch_mv = EFLinearOperator(
+        la_case.torch_model,
+        torch.nn.BCEWithLogitsLoss(),
+        params,
+        [(la_case.X_train, la_case.y_train)],
+    )
+    torch_curv = torch_mv @ torch.eye(torch_mv.shape[0])
+
+    train_batch = input_target_split_jax(next(iter(la_case.train_loader)))
+    np.testing.assert_allclose(train_batch["target"], la_case.y_train)
+    jax_mv = create_empirical_fisher_mv(
+        la_case.nnx_model_fn,
+        la_case.params,
+        train_batch,
+        loss_fn="binary_cross_entropy",
+        num_curv_samples=1,
+        num_total_samples=1,
+        vmap_over_data=False,
+    )
+    flatten, unflatten = create_pytree_flattener(la_case.params)
+    jax_curv = to_dense(
+        wrap_function(jax_mv, unflatten, flatten), layout=flatten(la_case.params)
+    )
+    np.testing.assert_allclose(
+        la_case.torch_model(la_case.X_train).detach().numpy(),
+        la_case.nnx_model_fn(train_batch["input"], la_case.params),
+        atol=0.01)
+
+    np.testing.assert_allclose(
+        np.sort(jnp.abs(torch_curv).sum(axis=-1))
+        / np.sort(jnp.abs(jax_curv).sum(axis=-1)),
+        1,
+        atol=1e-2,
+    )
+
+
+def test_MC_convergence(trained_laplace_comparison):
+    la_case = trained_laplace_comparison
+    train_batch = input_target_split_jax(next(iter(la_case.train_loader)))
+
+    GGN_mv = create_ggn_mv(
+        la_case.nnx_model_fn,
+        la_case.params,
+        train_batch,
+        loss_fn="mse",
+        num_curv_samples=150,
+        num_total_samples=1,
+        vmap_over_data=False,
+    )
+    flatten, unflatten = create_pytree_flattener(la_case.params)
+    GGN_curv = to_dense(
+        wrap_function(GGN_mv, unflatten, flatten), layout=flatten(la_case.params)
+    )
+    KEY = jax.random.key(742)
+    MC_mv = create_MC_fisher_mv(
+        la_case.nnx_model_fn,
+        la_case.params,
+        train_batch,
+        loss_fn="mse",
+        key=KEY,
+        mc_samples=10000,
+        num_curv_samples=1,
+        num_total_samples=1,
+        vmap_over_data=False,
+    )
+    flatten, unflatten = create_pytree_flattener(la_case.params)
+    MC_curv = to_dense(
+        wrap_function(MC_mv, unflatten, flatten), layout=flatten(la_case.params)
+    )
+
+    np.testing.assert_allclose(GGN_curv, MC_curv, atol=0.03)
