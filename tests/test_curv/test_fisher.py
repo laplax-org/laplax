@@ -74,6 +74,8 @@ def test_emp_fisher(case):
         data=case.data,
         loss_fn=case.loss,
         vmap_over_data=True,
+        num_curv_samples=case.n,
+        num_total_samples=1,
     )
     fisher_laplax = case.construct_fisher(fisher_mv)
 
@@ -128,6 +130,8 @@ def test_emp_fisher_without_data_vmap(case):
         data=case.data,
         loss_fn=case.loss,
         vmap_over_data=False,
+        num_curv_samples=case.n,
+        num_total_samples=1,
     )
     fisher_laplax = case.construct_fisher(fisher_mv)
     assert jnp.allclose(fisher_laplax, case.fisher_manual)
@@ -154,6 +158,8 @@ def test_emp_fisher_with_pytree_params():
         data=data,
         loss_fn=LossFn.MSE,
         vmap_over_data=True,
+        num_curv_samples=3,
+        num_total_samples=1,
     )
 
     # Construct full matrix via mvp with one-hot vectors as PyTrees
@@ -234,6 +240,8 @@ def test_cross_entropy_loss(case_CE):
         data=case_CE.data,
         loss_fn=case_CE.loss,
         vmap_over_data=True,
+        num_curv_samples=case_CE.n,
+        num_total_samples=1,
     )
     fisher_laplax = case_CE.construct_fisher(fisher_mv)
 
@@ -297,7 +305,7 @@ def test_emp_fisher_against_curvlinops(trained_laplace_comparison):
         la_case.params,
         train_batch,
         loss_fn="mse",
-        num_curv_samples=1,
+        num_curv_samples=150,
         num_total_samples=1,
         vmap_over_data=False,
     )
@@ -335,7 +343,7 @@ def test_MC_fisher_against_curvlinops(trained_laplace_comparison):
         loss_fn="mse",
         key=KEY,
         mc_samples=10000,
-        num_curv_samples=1,
+        num_curv_samples=150,
         num_total_samples=1,
         vmap_over_data=True,
     )
@@ -370,7 +378,7 @@ def test_MC_fisher_against_curvlinops_BCE(trained_laplace_comparison_classificat
         la_case.params,
         train_batch,
         loss_fn="binary_cross_entropy",
-        num_curv_samples=1,
+        num_curv_samples=150,
         num_total_samples=1,
         vmap_over_data=False,
     )
@@ -417,7 +425,7 @@ def test_MC_convergence(trained_laplace_comparison):
         loss_fn="mse",
         key=KEY,
         mc_samples=10000,
-        num_curv_samples=1,
+        num_curv_samples=150,
         num_total_samples=1,
         vmap_over_data=False,
     )

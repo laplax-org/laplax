@@ -80,7 +80,7 @@ def create_empirical_fisher_mv_without_data(
 
     The resulting matrix vector product computes:
     $$
-    \text{factor} \frac{1}{N}\cdot \sum_n J_n^\top \left(\nabla_{f_n}
+    \text{factor} \cdot \sum_n J_n^\top \left(\nabla_{f_n}
     c(y=y_n,\hat{y}=f_n)\right) \left(\nabla_{f_n}
     c(y=y_n,\hat{y}=f_n)\right)^\top J_n \cdot v
     $$
@@ -132,9 +132,9 @@ def create_empirical_fisher_mv_without_data(
 
             vmap = jax.vmap(fisher_calculation_for_vmap)(data)
             fisher = mean(vmap, axis=0)  # over batch dimension
-            return mul(factor, fisher)
+            batch_size = data["input"].shape[0]
+            return mul(factor * batch_size, fisher)
 
-        divide_by_n = False
         if data["input"].ndim == 1:
             # No leading batch dim => Calculate for single datum
             xs, ys = data["input"], data["target"]
@@ -147,15 +147,10 @@ def create_empirical_fisher_mv_without_data(
             # Handle batch dimension of data explicitly
             xs, ys = data["input"], data["target"]
             grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, handle_batches=True)
-            divide_by_n = True
 
         # Calculate forward pass and its derivative
         f_ns, jvp = jax.linearize(lambda p: model_fn(xs, p), params)
         fisher = _fisher_calculation(f_ns, jvp, ys, grad_fn, vec)
-
-        if divide_by_n:
-            n = len(data["input"])
-            fisher = mul(1.0 / n, fisher)
 
         return mul(factor, fisher)
 
@@ -307,10 +302,8 @@ def create_MC_fisher_mv_without_data(
 
             vmap = jax.vmap(fisher_calculation_for_vmap)(data, keys)
             fisher = mean(vmap, axis=0)  # over batch dimension
-            fisher = mul(1.0 / mc_samples, fisher)
-            return mul(factor, fisher)
+            return mul(factor * batch_size / mc_samples, fisher)
 
-        divide_by_n = False
         if data["input"].ndim == 1:
             # No leading batch dim => Calculate for single datum
             xs = data["input"]
@@ -320,16 +313,11 @@ def create_MC_fisher_mv_without_data(
             xs = data["input"][0]
         else:
             xs = data["input"]
-            divide_by_n = True
 
         f_ns, jvp = jax.linearize(lambda p: model_fn(xs, p), params)
         y_samples = sample_likelihood(loss_fn, f_ns, mc_samples, key)
         fisher = _fisher_calculation(f_ns, jvp, y_samples, grad_fn, vec)
-        fisher = mul(1.0 / mc_samples, fisher)
-        if divide_by_n:
-            n = len(data["input"])
-            fisher = mul(1.0 / n, fisher)
-        return mul(factor, fisher)
+        return mul(factor / mc_samples, fisher)
 
     return mc_fisher_mv
 
