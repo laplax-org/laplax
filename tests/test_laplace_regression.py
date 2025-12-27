@@ -3,11 +3,12 @@ import numpy as np
 import pytest
 import torch
 from curvlinops import GGNLinearOperator
-from laplax.curv.ggn import create_ggn_mv
 
+from laplax.curv.ggn import create_ggn_mv
 from laplax.util.flatten import create_pytree_flattener, wrap_function
 from laplax.util.mv import to_dense
 from tests.conftest import input_target_split_jax
+
 
 @pytest.mark.parametrize("la_method", ["full", "diagonal"])
 def test_compare_implementations_against_laplace_redux(
