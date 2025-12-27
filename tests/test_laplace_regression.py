@@ -35,6 +35,17 @@ def get_sinusoid_example(n_data=150, sigma_noise=0.3, batch_size=150):
     return X_train, y_train, train_loader, X_test
 
 
+def get_sinusoid_classification_example(n_data=150, sigma_noise=0.3, batch_size=150):
+    # create simple sinusoid data set
+    X_train = (torch.rand(n_data) * 8).unsqueeze(-1)
+    y_train = (torch.sin(X_train) + torch.randn_like(X_train) * sigma_noise > 0).type(torch.float32)
+    train_loader = data_utils.DataLoader(
+        data_utils.TensorDataset(X_train, y_train), batch_size=batch_size
+    )
+    X_test = torch.linspace(-5, 13, 500).unsqueeze(-1)
+    return X_train, y_train, train_loader, X_test
+
+
 def input_target_split_jax(batch):
     return {
         "input": jnp.asarray(batch[0].numpy()),
@@ -52,6 +63,7 @@ class LaplaceComparison:
         *,
         la_method="full",
         debug=False,
+        loss="mse"
     ):
         self.n_epochs = n_epochs
         self.seed = seed
@@ -65,13 +77,20 @@ class LaplaceComparison:
         torch.manual_seed(self.seed)
 
         # Create data
-        (
-            self.X_train,
-            self.y_train,
-            self.train_loader,
-            self.X_test,
-        ) = get_sinusoid_example(sigma_noise=self.sigma_noise)
-
+        if loss == "mse":
+            (
+                self.X_train,
+                self.y_train,
+                self.train_loader,
+                self.X_test,
+            ) = get_sinusoid_example(sigma_noise=self.sigma_noise)
+        else:
+            (
+                self.X_train,
+                self.y_train,
+                self.train_loader,
+                self.X_test,
+            ) = get_sinusoid_classification_example(sigma_noise=self.sigma_noise)
         # Build the torch model
         self.torch_model = self._build_torch_model()
 
@@ -313,6 +332,26 @@ def trained_laplace_comparison():
         lr=1e-2,
         la_method=None,  # We'll override la_method later if desired
         debug=False,
+    )
+    comparison.train_model()
+    return comparison
+
+
+@pytest.fixture(scope="module")
+def trained_laplace_comparison_classification():
+    """Build a LaplaceComparison instance, train it once, and return it.
+
+    Returns:
+        The LaplaceComparison object.
+    """
+    comparison = LaplaceComparison(
+        n_epochs=1000,
+        seed=711,
+        sigma_noise=0.3,
+        lr=1e-2,
+        la_method=None,  # We'll override la_method later if desired
+        debug=False,
+        loss="bce",
     )
     comparison.train_model()
     return comparison
