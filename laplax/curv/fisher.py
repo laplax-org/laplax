@@ -323,7 +323,6 @@ def create_MC_fisher_mv_without_data(
 
         f_ns, jvp = jax.linearize(lambda p: model_fn(xs, p), params)
         y_samples = sample_likelihood(loss_fn, f_ns, mc_samples, key)
-        #jax.debug.print("{}", y_samples.shape)
         fisher = _fisher_calculation(f_ns, jvp, y_samples, grad_fn, vec)
         fisher = mul(1.0 / mc_samples, fisher)
         if divide_by_n:
