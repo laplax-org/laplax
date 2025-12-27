@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import pytest_cases
 import torch
-from curvlinops import EFLinearOperator, FisherMCLinearOperator, GGNLinearOperator
+from curvlinops import EFLinearOperator, FisherMCLinearOperator
 
 from laplax.curv.fisher import (
     create_empirical_fisher_mv,
@@ -13,15 +13,9 @@ from laplax.curv.fisher import (
 )
 from laplax.curv.ggn import create_ggn_mv
 from laplax.enums import LossFn
-from laplax.util.flatten import full_flatten
-from tests.test_laplace_regression import (
-    trained_laplace_comparison,
-    trained_laplace_comparison_classification,
-    create_pytree_flattener,
-    input_target_split_jax,
-    to_dense,
-    wrap_function,
-)
+from laplax.util.flatten import create_pytree_flattener, full_flatten, wrap_function
+from laplax.util.mv import to_dense
+from tests.conftest import input_target_split_jax
 
 from .cases.fisher import FisherCase
 
@@ -387,7 +381,8 @@ def test_MC_fisher_against_curvlinops_BCE(trained_laplace_comparison_classificat
     np.testing.assert_allclose(
         la_case.torch_model(la_case.X_train).detach().numpy(),
         la_case.nnx_model_fn(train_batch["input"], la_case.params),
-        atol=0.01)
+        atol=0.01,
+    )
 
     np.testing.assert_allclose(
         np.sort(jnp.abs(torch_curv).sum(axis=-1))

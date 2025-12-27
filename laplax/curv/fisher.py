@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
+from jax.random import bernoulli, categorical
 
 from laplax.curv.loss import fetch_loss_gradient_fn
 from laplax.enums import LossFn
@@ -338,14 +339,15 @@ def sample_likelihood(loss_fn, f_ns, mc_samples, key):
     *n, o = f_ns.shape
     if loss_fn == LossFn.MSE:
         unit_samples = jax.random.normal(key, shape=(*n, mc_samples, o))
-        return (unit_samples * jnp.sqrt(0.5) + f_ns[..., None, :])
+        return unit_samples * jnp.sqrt(0.5) + f_ns[..., None, :]
 
     if loss_fn == LossFn.CROSS_ENTROPY:
         f_ns = jnp.expand_dims(f_ns, axis=-2)
-        return jax.random.categorical(key, f_ns, shape=(*n, mc_samples), replace=True)[..., None]
+        return categorical(key, f_ns, shape=(*n, mc_samples), replace=True)[..., None]
 
     if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
-        bool_samples = jax.random.bernoulli(key, jnp.expand_dims(f_ns, axis=-2), shape=(*n, mc_samples, 1))
+        f_ns = jnp.expand_dims(f_ns, axis=-2)
+        bool_samples = bernoulli(key, f_ns, shape=(*n, mc_samples, 1))
         return jnp.astype(bool_samples, jnp.float32)
 
     msg = f"Unsupported LossFn {loss_fn} to sample from."
