@@ -9,8 +9,8 @@ from curvlinops import EFLinearOperator, FisherMCLinearOperator
 from laplax.curv.fisher import (
     create_empirical_fisher_mv,
     create_MC_fisher_mv,
-    sample_likelihood,
     empirical_fisher_mv,
+    sample_likelihood,
 )
 from laplax.curv.ggn import create_ggn_mv
 from laplax.enums import LossFn

@@ -76,7 +76,6 @@ def empirical_fisher_mv(
     num_curv_samples: Int | None = None,
     num_total_samples: Int | None = None,
 ) -> Callable[[Params], Params]:
-
     factor = num_total_samples / num_curv_samples
 
     def emp_fisher_mv(vec):
@@ -94,6 +93,7 @@ def empirical_fisher_mv(
         fisher = mean(vmap, axis=0)  # over batch dimension
         batch_size = data["input"].shape[0]
         return mul(factor * batch_size, fisher)
+
     return emp_fisher_mv
 
 
