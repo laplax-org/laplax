@@ -10,6 +10,7 @@ from laplax.curv.fisher import (
     create_empirical_fisher_mv,
     create_MC_fisher_mv,
     sample_likelihood,
+    empirical_fisher_mv,
 )
 from laplax.curv.ggn import create_ggn_mv
 from laplax.enums import LossFn
@@ -68,12 +69,11 @@ def cases(i):
 
 @pytest_cases.parametrize_with_cases("case", cases=[cases])
 def test_emp_fisher(case):
-    fisher_mv = create_empirical_fisher_mv(
+    fisher_mv = empirical_fisher_mv(
         model_fn=case.fn,
         params=case.params,
         data=case.data,
         loss_fn=case.loss,
-        vmap_over_data=True,
         num_curv_samples=case.n,
         num_total_samples=1,
     )
