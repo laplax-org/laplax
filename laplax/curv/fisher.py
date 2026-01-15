@@ -67,36 +67,6 @@ def _fisher_calculation(f_ns, jvp, ys, loss_grad_fn, vec):
     return JtGGtJv
 
 
-def empirical_fisher_mv(
-    model_fn: ModelFn,
-    params: Params,
-    data: Data,
-    loss_fn: LossFn | str | Callable | None = None,
-    *,
-    num_curv_samples: Int | None = None,
-    num_total_samples: Int | None = None,
-) -> Callable[[Params], Params]:
-    factor = num_total_samples / num_curv_samples
-
-    def emp_fisher_mv(vec):
-        def fisher_single_datum(datum):
-            x, y = datum["input"], datum["target"]
-
-            def concatenation(params):
-                return loss_fn(y, model_fn(x, params))
-
-            _, jvp = jax.linearize(concatenation, params)
-            vjp = jax.linear_transpose(jvp, params)
-            return vjp(jvp(vec))[0]
-
-        vmap = jax.vmap(fisher_single_datum)(data)
-        fisher = mean(vmap, axis=0)  # over batch dimension
-        batch_size = data["input"].shape[0]
-        return mul(factor * batch_size, fisher)
-
-    return emp_fisher_mv
-
-
 def create_empirical_fisher_mv_without_data(
     model_fn: ModelFn,
     params: Params,
