@@ -217,7 +217,12 @@ def create_empirical_fisher_mv(
         must accept batches of data.
     """
     if num_curv_samples is None:
-        num_curv_samples = data["input"].shape[0]
+        # infer num_curv_samples from batch dimension
+        if data["input"].ndim == 1:
+            # no batch dimension present
+            num_curv_samples = 1
+        else:
+            num_curv_samples = data["input"].shape[0]
 
     if num_total_samples is None:
         num_total_samples = num_curv_samples
@@ -397,10 +402,20 @@ def create_MC_fisher_mv(
         the Monte-Carlo Fisher matrix-vector product.
 
     Note:
-        The function assumes as a default that the data has a batch dimension.
+        If vmap_over_data is true (default), the computation is vmapped over the batch
+        of data. If the computation should be performed for a singe datum
+        (or a singleton batch dimension), pass 'vmap_over_data'=False.
+        If 'vmap_over_data'=False and a non-singleton batch dimension is passed,
+        the batch dimension is handled explicitly.
+        In this case, the passed model_fn must accept batches of data.
     """
     if num_curv_samples is None:
-        num_curv_samples = data["input"].shape[0]
+        # infer num_curv_samples from batch dimension
+        if data["input"].ndim == 1:
+            # no batch dimension present
+            num_curv_samples = 1
+        else:
+            num_curv_samples = data["input"].shape[0]
 
     if num_total_samples is None:
         num_total_samples = num_curv_samples
