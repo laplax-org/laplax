@@ -354,7 +354,6 @@ def create_MC_fisher_mv(
     params: Params,
     data: Data,
     loss_fn: LossFn | str,
-    key: KeyType,
     *,
     num_curv_samples: Int | None = None,
     num_total_samples: Int | None = None,
@@ -384,7 +383,6 @@ def create_MC_fisher_mv(
         params: Model parameters.
         data: A batch of input and target data.
         loss_fn: Loss function to use for the Fisher computation.
-        key: PRNG Key to use for sampling
         num_curv_samples: Number of samples used to calculate the Fisher.
             Defaults to None, in which case it is inferred from `data`
             as its batch size.
@@ -398,7 +396,7 @@ def create_MC_fisher_mv(
         mc_samples: Number of MC samples to use. Defaults to 1.
 
     Returns:
-        A function that takes a vector and computes
+        A function that takes a vector and key and computes
         the Monte-Carlo Fisher matrix-vector product.
 
     Note:
@@ -431,7 +429,7 @@ def create_MC_fisher_mv(
         mc_samples=mc_samples,
     )
 
-    def wrapped_fisher_mv(vec: Params) -> Params:
+    def wrapped_fisher_mv(vec, key):
         return fisher_mv(vec, data, key)
 
     return wrapped_fisher_mv
