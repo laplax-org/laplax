@@ -43,6 +43,12 @@ def _fisher_calculation(f_ns, jvp, ys, loss_grad_fn, vec):
         return jnp.atleast_2d(jvp(vec))
 
     vjp = jax.linear_transpose(_jvp, vec)
+
+    # Calculate grads and expand as necessary to shape (n,m,o) where
+    # n: Number of datapoints
+    # m: Number of mc_samples
+    # o: Output dimension of network (Length of gradient vector)
+
     if ys.ndim == 1:
         # no batch or mc_samples dim
         grads = jnp.expand_dims(loss_grad_fn(f_ns, ys), axis=(0, 1))
@@ -59,8 +65,8 @@ def _fisher_calculation(f_ns, jvp, ys, loss_grad_fn, vec):
     else:
         # batch dim, but no mc_samples dim
         grads = jnp.expand_dims(loss_grad_fn(f_ns, ys), 1)
+    
     Jv = _jvp(vec)
-
     GtJv = jnp.einsum("nmo,no->nm", grads, Jv)
     GGtJv = jnp.einsum("nm,nmo->no", GtJv, grads)
     JtGGtJv = vjp(GGtJv)[0]
@@ -120,7 +126,7 @@ def create_empirical_fisher_mv_without_data(
         grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
         if vmap_over_data:
             if not data["input"].ndim > 1:
-                msg = "vmap_over_data=True could not find a leading batch dimension"
+                msg = "Could not find a leading batch dimension. If this is intentional, pass vmap_over_data=False"
                 raise ValueError(msg)
 
             def fisher_calculation_for_vmap(datum):
@@ -147,10 +153,9 @@ def create_empirical_fisher_mv_without_data(
             xs, ys = data["input"], data["target"]
             grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn, handle_batches=True)
 
-        # Calculate forward pass and its derivative
         f_ns, jvp = jax.linearize(lambda p: model_fn(xs, p), params)
-        fisher = _fisher_calculation(f_ns, jvp, ys, grad_fn, vec)
 
+        fisher = _fisher_calculation(f_ns, jvp, ys, grad_fn, vec)
         return mul(factor, fisher)
 
     return empirical_fisher_mv
@@ -316,8 +321,9 @@ def create_MC_fisher_mv_without_data(
         grad_fn = fetch_loss_gradient_fn(loss_fn, None, handle_batches=True)
         if vmap_over_data:
             if not data["input"].ndim > 1:
-                msg = "vmap_over_data=True could not find a leading batch dimension"
+                msg = "Could not find a leading batch dimension. If this is intentional, pass vmap_over_data=False"
                 raise ValueError(msg)
+
             batch_size = data["input"].shape[0]
             keys = jax.random.split(key, batch_size)
 
@@ -343,6 +349,7 @@ def create_MC_fisher_mv_without_data(
 
         f_ns, jvp = jax.linearize(lambda p: model_fn(xs, p), params)
         y_samples = sample_likelihood(loss_fn, f_ns, mc_samples, key)
+
         fisher = _fisher_calculation(f_ns, jvp, y_samples, grad_fn, vec)
         return mul(factor / mc_samples, fisher)
 
