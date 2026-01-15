@@ -9,7 +9,6 @@ from curvlinops import EFLinearOperator, FisherMCLinearOperator
 from laplax.curv.fisher import (
     create_empirical_fisher_mv,
     create_MC_fisher_mv,
-    empirical_fisher_mv,
     sample_likelihood,
 )
 from laplax.curv.ggn import create_ggn_mv
@@ -69,7 +68,7 @@ def cases(i):
 
 @pytest_cases.parametrize_with_cases("case", cases=[cases])
 def test_emp_fisher(case):
-    fisher_mv = empirical_fisher_mv(
+    fisher_mv = create_empirical_fisher_mv(
         model_fn=case.fn,
         params=case.params,
         data=case.data,
@@ -341,12 +340,14 @@ def test_MC_fisher_against_curvlinops(trained_laplace_comparison):
         la_case.params,
         train_batch,
         loss_fn="mse",
-        key=KEY,
         mc_samples=10000,
         num_curv_samples=150,
         num_total_samples=1,
         vmap_over_data=True,
     )
+    def jax_mv_with_key(vec):
+        return jax_mv(vec, KEY)
+
     flatten, unflatten = create_pytree_flattener(la_case.params)
     jax_curv = to_dense(
         wrap_function(jax_mv, unflatten, flatten), layout=flatten(la_case.params)
@@ -423,12 +424,14 @@ def test_MC_convergence(trained_laplace_comparison):
         la_case.params,
         train_batch,
         loss_fn="mse",
-        key=KEY,
         mc_samples=10000,
         num_curv_samples=150,
         num_total_samples=1,
         vmap_over_data=False,
     )
+    def MC_mv_with_key(vec):
+        return MC_mv(vec, KEY)
+
     flatten, unflatten = create_pytree_flattener(la_case.params)
     MC_curv = to_dense(
         wrap_function(MC_mv, unflatten, flatten), layout=flatten(la_case.params)
