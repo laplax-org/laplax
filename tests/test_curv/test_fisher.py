@@ -350,7 +350,7 @@ def test_MC_fisher_against_curvlinops(trained_laplace_comparison):
 
     flatten, unflatten = create_pytree_flattener(la_case.params)
     jax_curv = to_dense(
-        wrap_function(jax_mv, unflatten, flatten), layout=flatten(la_case.params)
+        wrap_function(jax_mv_with_key, unflatten, flatten), layout=flatten(la_case.params)
     )
     np.testing.assert_allclose(
         np.sort(jnp.abs(torch_curv).sum(axis=-1))
@@ -434,7 +434,7 @@ def test_MC_convergence(trained_laplace_comparison):
 
     flatten, unflatten = create_pytree_flattener(la_case.params)
     MC_curv = to_dense(
-        wrap_function(MC_mv, unflatten, flatten), layout=flatten(la_case.params)
+        wrap_function(MC_mv_with_key, unflatten, flatten), layout=flatten(la_case.params)
     )
 
     np.testing.assert_allclose(GGN_curv, MC_curv, atol=0.03)
