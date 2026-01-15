@@ -85,14 +85,13 @@ def create_empirical_fisher_mv_without_data(
     c(y=y_n,\hat{y}=f_n)\right)^\top J_n \cdot v
     $$
 
-    #where $J_n$ is the Jacobian of the model w.r.t the parameters
-    #evaluated at data point $n$, $c(y=y_n,\hat{y}=f_n)$ is the
-    #loss function evaluated at data point $n$, and $v$ is the vector.
-    #The `factor` is a scaling factor that
-    #is used to scale the Fisher matrix.
+    where $J_n$ is the Jacobian of the model w.r.t the parameters
+    evaluated at data point $n$, $c(y=y_n,\hat{y}=f_n)$ is the
+    loss function evaluated at data point $n$, and $v$ is the vector.
+    The `factor` is a scaling factor that is used to scale the Fisher matrix.
 
     This function computes the above expression efficiently without hardcoding the
-        dataset, making it suitable for distributed or batched computations.
+    dataset, making it suitable for distributed or batched computations.
 
     Args:
         model_fn: The model's forward pass function.
@@ -107,14 +106,14 @@ def create_empirical_fisher_mv_without_data(
         and computes the empirical Fisher matrix-vector product.
 
     Note:
-        If vmap_over_data is true (default), the computation is vmapped over the batch
+        If 'vmap_over_data'=True (default), the computation is vmapped over the batch
         of data. If the computation should be performed for a singe datum
         (or a singleton batch dimension), pass 'vmap_over_data'=False.
-        If 'vmap_over_data'=False and a non-singleton batch dimension is passed,
-        the batch dimension is handled explicitly.
-        In this case, the passed model_fn and (optional) loss_grad_fn
+        If 'vmap_over_data'=False and a non-singleton batch dimension is present,
+        the batch dimension is handled by vectorization.
+        Compared to 'vmap_over_data'=True, this can be faster especially for large batches,
+        but the passed 'model_fn' and (optional) 'loss_grad_fn'
         must accept batches of data.
-
     """
 
     def empirical_fisher_mv(vec, data):
@@ -172,15 +171,15 @@ def create_empirical_fisher_mv(
 
     The resulting matrix vector product computes:
     $$
-    \text{factor} \frac{1}{N}\cdot \sum_n J_n^\top \left(\nabla_{f_n}
+    \frac{\text{num_total_samples}}{\text{num_curv_samples}} 
+    \cdot \sum_n J_n^\top \left(\nabla_{f_n}
     c(y=y_n,\hat{y}=f_n)\right) \left(\nabla_{f_n}
     c(y=y_n,\hat{y}=f_n)\right)^\top J_n \cdot v
     $$
 
-    #where $J_n$ is the Jacobian of the model w.r.t the parameters
-    #evaluated at data point $n$, $c(y=y_n,\hat{y}=f_n)$ is the
-    #loss function evaluated at data point $n$, and $v$ is the vector.
-    #The `factor` is a scaling factor that is used to scale the Fisher matrix.
+    where $J_n$ is the Jacobian of the model w.r.t the parameters
+    evaluated at data point $n$, $c(y=y_n,\hat{y}=f_n)$ is the
+    loss function evaluated at data point $n$, and $v$ is the vector.
 
     This function hardcodes the dataset, making it ideal for scenarios where the dataset
     remains fixed.
@@ -208,7 +207,14 @@ def create_empirical_fisher_mv(
         the empirical Fisher matrix-vector product for the given data.
 
     Note:
-        The function assumes as a default that the data has a batch dimension.
+        If 'vmap_over_data'=True (default), the computation is vmapped over the batch
+        of data. If the computation should be performed for a singe datum
+        (or a singleton batch dimension), pass 'vmap_over_data'=False.
+        If 'vmap_over_data'=False and a non-singleton batch dimension is present,
+        the batch dimension is handled by vectorization.
+        Compared to 'vmap_over_data'=True, this can be faster especially for large batches,
+        but the passed 'model_fn' and (optional) 'loss_grad_fn'
+        must accept batches of data.
     """
     if num_curv_samples is None:
         num_curv_samples = data["input"].shape[0]
@@ -246,29 +252,25 @@ def create_MC_fisher_mv_without_data(
 
     The resulting matrix vector product computes:
     $$
-    \text{factor} \cdot \frac{1}{NM}\sum_n,m J_n^\top \left(\nabla_{f_n}
+    \text{factor} \cdot \frac{1}{\text{mc_samples}\sum_n,m J_n^\top \left(\nabla_{f_n}
     c(y=\tilde{y}_{n,m},\hat{y}=f_n)\right) \left(\nabla_{f_n}
     c(y=\tilde{y}_{n,m},\hat{y}=f_n)\right)^\top J_n \cdot v
     $$
 
-    #where $J_n$ is the Jacobian of the model w.r.t the parameters
-    #evaluated at data point $n$, $c(y,\hat{y})$ is the
-    #loss function, and $v$ is the vector.
-    #$\tilde{y}_{n,m}$ is the m-th Monte Carlo sample of the label under the liklihood
-    # induced by the loss function: $r(y|f_n) = \exp(-c(y,\hat{y}=f_n))$
-    #at data point $n$.
-    #The `factor` is a scaling factor that
-    #is used to scale the Fisher matrix.
+    where $J_n$ is the Jacobian of the model w.r.t the parameters evaluated at data point $n$,
+    $c(y,\hat{y})$ is the loss function, and $v$ is the vector.
+    $\tilde{y}_{n,m}$ is the m-th Monte Carlo sample of the label under the likelihood
+    induced by the loss function: $r(y|f_n) = \exp(-c(y,\hat{y}=f_n))$ at data point $n$.
+    The `factor` is a scaling factor that is used to scale the Fisher matrix.
 
     This function computes the above expression efficiently without hardcoding the
-        dataset, making it suitable for distributed or batched computations.
+    dataset, making it suitable for distributed or batched computations.
 
     Args:
         model_fn: The model's forward pass function.
         params: Model parameters.
         loss_fn: Loss function to use for the Fisher computation.
         factor: Scaling factor for the Fisher computation.
-        key: PRNG Key to use for sampling
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         mc_samples: Number of MC samples to use. Defaults to 1.
 
@@ -354,27 +356,24 @@ def create_MC_fisher_mv(
     vmap_over_data: bool = True,
     mc_samples: Int | None = 1,
 ) -> Callable[[Params], Params]:
-    r"""Create Monte-Carlo approximated Fisher matrix-vector product without fixed data.
+    r"""Create Monte-Carlo approximated Fisher matrix-vector product.
 
     The resulting matrix vector product computes:
     $$
-    \text{factor} \cdot \frac{1}{NM}\sum_n,m J_n^\top \left(\nabla_{f_n}
+    \text{factor} \cdot \frac{1}{\text{mc_samples}\sum_n,m J_n^\top \left(\nabla_{f_n}
     c(y=\tilde{y}_{n,m},\hat{y}=f_n)\right) \left(\nabla_{f_n}
     c(y=\tilde{y}_{n,m},\hat{y}=f_n)\right)^\top J_n \cdot v
     $$
 
-    #where $J_n$ is the Jacobian of the model w.r.t the parameters
-    #evaluated at data point $n$, $c(y,\hat{y})$ is the
-    #loss function, and $v$ is the vector.
-    #$\tilde{y}_{n,m}$ is the m-th Monte Carlo sample of the label under the liklihood
-    # induced by the loss function: $r(y|f_n) = \exp(-c(y,\hat{y}=f_n))$
-    #at data point $n$.
-    #The `factor` is a scaling factor that
-    #is used to scale the Fisher matrix.
+    where $J_n$ is the Jacobian of the model w.r.t the parameters
+    evaluated at data point $n$, $c(y,\hat{y})$ is the
+    loss function, and $v$ is the vector.
+    $\tilde{y}_{n,m}$ is the m-th Monte Carlo sample of the label under the likelihood
+    induced by the loss function: $r(y|f_n) = \exp(-c(y,\hat{y}=f_n))$ at data point $n$.
+    The `factor` is a scaling factor that is used to scale the Fisher matrix.
 
-    This function computes the above expression efficiently without hardcoding the
-        dataset, making it suitable for distributed or batched computations.
-
+    This function hardcodes the dataset, making it ideal for scenarios where the dataset remains fixed.
+    
     Args:
         model_fn: The model's forward pass function.
         params: Model parameters.
