@@ -16,7 +16,7 @@ from laplax.types import (
     ModelFn,
     Params,
 )
-from laplax.util.tree import mean, mul
+from laplax.util.tree import _sum, mul
 
 
 def _fisher_calculation(f_ns, jvp, ys, loss_grad_fn, vec):
@@ -136,9 +136,9 @@ def create_empirical_fisher_mv_without_data(
                 return _fisher_calculation(f_n, jvp, y, grad_fn, vec)
 
             vmap = jax.vmap(fisher_calculation_for_vmap)(data)
-            fisher = mean(vmap, axis=0)  # over batch dimension
+            fisher = _sum(vmap, axis=0)  # over batch dimension
             batch_size = data["input"].shape[0]
-            return mul(factor * batch_size, fisher)
+            return mul(factor, fisher)
 
         if data["input"].ndim == 1:
             # No leading batch dim => Calculate for single datum
@@ -334,8 +334,8 @@ def create_MC_fisher_mv_without_data(
                 return _fisher_calculation(f_n, jvp, y_samples, grad_fn, vec)
 
             vmap = jax.vmap(fisher_calculation_for_vmap)(data, keys)
-            fisher = mean(vmap, axis=0)  # over batch dimension
-            return mul(factor * batch_size / mc_samples, fisher)
+            fisher = _sum(vmap, axis=0)  # over batch dimension
+            return mul(factor / mc_samples, fisher)
 
         if data["input"].ndim == 1:
             # No leading batch dim => Calculate for single datum
