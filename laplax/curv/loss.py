@@ -250,39 +250,38 @@ def fetch_loss_gradient_fn(
     """
     del kwargs
 
-    if loss_fn is None and loss_gradient_fn is None:
-        msg = "Either loss_fn or loss_gradient_fn must be provided."
-        raise ValueError(msg)
-
-    # Enforce not both loss_fn and loss_gradient_fn are prvovided:
-    if loss_fn is not None and loss_gradient_fn is not None:
-        msg = "Only one of loss_fn or loss_gradient_fn must be provided."
-        raise ValueError(msg)
-
-    if loss_gradient_fn is None:
-        if isinstance(loss_fn, Callable):
-            grad = jax.grad(loss_fn, argnums=0)
-            if handle_batches:
-                grad = vmap(grad)
-            return grad
-
-        if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
-            loss_grad_fn = _binary_cross_entropy_gradient
-
-        elif loss_fn == LossFn.CROSS_ENTROPY:
-            loss_grad_fn = _cross_entropy_gradient
-
-        elif loss_fn == LossFn.MSE:
-            loss_grad_fn = _mse_gradient
-
-        # Does not support LossFn.None because identity is not scalar-valued,
-        # so there exists no gradient
-
-        else:
-            msg = f"Unsupported loss function '{loss_fn}' provided"
+    if loss_gradient_fn is not None:
+        if loss_fn is not None:
+            msg = "Only one of loss_fn or loss_gradient_fn must be provided."
             raise ValueError(msg)
-        loss_grad_fn = partial(loss_grad_fn, handle_batches=handle_batches)
+        return loss_gradient_fn
 
+        if loss_fn is None:
+            msg = "Either loss_fn or loss_gradient_fn must be provided."
+            raise ValueError(msg)
+
+    if isinstance(loss_fn, Callable):
+        grad = jax.grad(loss_fn, argnums=0)
+        if handle_batches:
+            grad = vmap(grad)
+        return grad
+
+    if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
+        grad = _binary_cross_entropy_gradient
+
+    elif loss_fn == LossFn.CROSS_ENTROPY:
+        grad = _cross_entropy_gradient
+
+    elif loss_fn == LossFn.MSE:
+        grad = _mse_gradient
+
+    # Does not support LossFn.None because identity is not scalar-valued,
+    # so there exists no gradient
+    else:
+        msg = f"Unsupported loss function '{loss_fn}' provided."
+        raise ValueError(msg)
+    
+    loss_grad_fn = partial(grad, handle_batches=handle_batches)
     return loss_grad_fn
 
 
