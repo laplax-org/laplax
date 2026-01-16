@@ -8,17 +8,22 @@ import jax.numpy as jnp
 
 from laplax.enums import LossFn
 from laplax.types import (
+    Int,
     Array,
     Float,
     InputArray,
+    PredArray,
+    TargetArray,
     Layout,
     ModelFn,
     Num,
     Params,
-    TargetArray,
+    KeyType,
 )
 from laplax.util.flatten import create_pytree_flattener, wrap_function
 from laplax.util.tree import get_size
+
+from jax.random import normal, bernoulli, categorical
 
 # -----------------------------------------------------------------------------
 # Low-rank terms
@@ -212,14 +217,14 @@ def sample_likelihood(loss_fn, f_ns, mc_samples, key):
         key: Random key for sampling
 
     Returns: 
-        Array samples of shape (batch_size, mc_samples, label_dimension).
+        Array samples of shape (batch_size, mc_samples, target_dimension).
 
     Raises:
         ValueError if passed 'loss_fn' is not supported.
     """
     *n, o = f_ns.shape
     if loss_fn == LossFn.MSE:
-        unit_samples = jax.random.normal(key, shape=(*n, mc_samples, o))
+        unit_samples = normal(key, shape=(*n, mc_samples, o))
         return unit_samples * jnp.sqrt(0.5) + f_ns[..., None, :]
 
     if loss_fn == LossFn.CROSS_ENTROPY:

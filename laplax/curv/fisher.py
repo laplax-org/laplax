@@ -4,7 +4,6 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
-from jax.random import bernoulli, categorical
 
 from laplax.curv.loss import fetch_loss_gradient_fn
 from laplax.enums import LossFn
@@ -17,7 +16,7 @@ from laplax.types import (
     Params,
 )
 from laplax.util.tree import _sum, mul
-
+from laplax.curv.utils import sample_likelihood
 
 def _fisher_calculation(f_ns, jvp, ys, loss_grad_fn, vec):
     r"""Performs concrete Fisher calculation.
