@@ -259,11 +259,12 @@ def create_MC_fisher_mv_without_data(
     model_fn: ModelFn,
     params: Params,
     loss_fn: LossFn | str,
+    key: KeyType,
     factor: Float,
     *,
     vmap_over_data: bool = True,
     mc_samples: Int | None = 1,
-) -> Callable[[Params, Data, KeyType], Params]:
+) -> Callable[[Params, Data], Params]:
     r"""Create Monte-Carlo approximated Fisher matrix-vector product without fixed data.
 
     The resulting matrix vector product computes:
@@ -287,12 +288,13 @@ def create_MC_fisher_mv_without_data(
         model_fn: The model's forward pass function.
         params: Model parameters.
         loss_fn: Loss function to use for the Fisher computation.
+        key: Random key to use for sampling.
         factor: Scaling factor for the Fisher computation.
         vmap_over_data: Whether to vmap over the data. Defaults to True.
         mc_samples: Number of MC samples to use. Defaults to 1.
 
     Returns:
-        A function that takes a vector, a batch of data and a key,
+        A function that takes a vector and a batch of data
         and computes the Monte-Carlo Fisher matrix-vector product.
 
     Note:
@@ -304,7 +306,7 @@ def create_MC_fisher_mv_without_data(
         In this case, the passed model_fn must accept batches of data.
     """
 
-    def mc_fisher_mv(vec, data, key):
+    def mc_fisher_mv(vec, data):
         grad_fn = fetch_loss_gradient_fn(loss_fn, None, handle_batches=True)
         if vmap_over_data:
             if not data["input"].ndim > 1:
@@ -349,12 +351,13 @@ def create_MC_fisher_mv(
     params: Params,
     data: Data,
     loss_fn: LossFn | str,
+    key: KeyType,
     *,
     num_curv_samples: Int | None = None,
     num_total_samples: Int | None = None,
     vmap_over_data: bool = True,
     mc_samples: Int | None = 1,
-) -> Callable[[Params, KeyType], Params]:
+) -> Callable[[Params], Params]:
     r"""Create Monte-Carlo approximated Fisher matrix-vector product.
 
     The resulting matrix vector product computes:
@@ -371,7 +374,7 @@ def create_MC_fisher_mv(
     induced by the loss function: $r(y|f_n) =\exp(-c(y,\hat{y}=f_n))$ at data point $n$.
     The `factor` is a scaling factor that is used to scale the Fisher matrix.
 
-    This function hardcodes the dataset, making it ideal for scenarios where 
+    This function hardcodes the dataset, making it ideal for scenarios where
     the dataset remains fixed.
 
     Args:
@@ -379,6 +382,7 @@ def create_MC_fisher_mv(
         params: Model parameters.
         data: A batch of input and target data.
         loss_fn: Loss function to use for the Fisher computation.
+        key: Random key to use for sampling.
         num_curv_samples: Number of samples used to calculate the Fisher.
             Defaults to None, in which case it is inferred from `data`
             as its batch size.
@@ -416,12 +420,13 @@ def create_MC_fisher_mv(
         model_fn=model_fn,
         params=params,
         loss_fn=loss_fn,
+        key=key,
         factor=curv_scaling_factor,
         vmap_over_data=vmap_over_data,
         mc_samples=mc_samples,
     )
 
-    def wrapped_fisher_mv(vec, key):
-        return fisher_mv(vec, data, key)
+    def wrapped_fisher_mv(vec):
+        return fisher_mv(vec, data)
 
     return wrapped_fisher_mv

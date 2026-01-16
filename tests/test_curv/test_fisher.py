@@ -340,18 +340,16 @@ def test_MC_fisher_against_curvlinops(trained_laplace_comparison):
         la_case.params,
         train_batch,
         loss_fn="mse",
+        key=KEY,
         mc_samples=10000,
         num_curv_samples=150,
         num_total_samples=1,
         vmap_over_data=True,
     )
 
-    def jax_mv_with_key(vec):
-        return jax_mv(vec, KEY)
-
     flatten, unflatten = create_pytree_flattener(la_case.params)
     jax_curv = to_dense(
-        wrap_function(jax_mv_with_key, unflatten, flatten),
+        wrap_function(jax_mv, unflatten, flatten),
         layout=flatten(la_case.params),
     )
     np.testing.assert_allclose(
@@ -425,6 +423,7 @@ def test_MC_convergence(trained_laplace_comparison):
         la_case.nnx_model_fn,
         la_case.params,
         train_batch,
+        key=KEY,
         loss_fn="mse",
         mc_samples=10000,
         num_curv_samples=150,
@@ -432,12 +431,9 @@ def test_MC_convergence(trained_laplace_comparison):
         vmap_over_data=False,
     )
 
-    def MC_mv_with_key(vec):
-        return MC_mv(vec, KEY)
-
     flatten, unflatten = create_pytree_flattener(la_case.params)
     MC_curv = to_dense(
-        wrap_function(MC_mv_with_key, unflatten, flatten),
+        wrap_function(MC_mv, unflatten, flatten),
         layout=flatten(la_case.params),
     )
 
