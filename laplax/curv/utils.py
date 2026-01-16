@@ -200,7 +200,23 @@ def concatenate_model_and_loss_fn(
 
 
 def sample_likelihood(loss_fn, f_ns, mc_samples, key):
-    # sample mc_samples values $\tilde{y} from e^{-\text{loss_fn}(y, f_n)}$
+    r"""Sample from a loss function interpreted as negative log-likelihood.
+
+    Samples labels $\tilde{y}$ from the likelihood defined as 
+    $$p(y | \text{f_ns}) = e^{-\text{loss_fn}(y, \text{f_ns})}$$
+
+    Args:
+        loss_fn: The loss function to interpret as negative log-likelihood
+        f_ns: Batch of model predictions
+        mc_samples: Number of samples to draw
+        key: Random key for sampling
+
+    Returns: 
+        Array samples of shape (batch_size, mc_samples, label_dimension).
+
+    Raises:
+        ValueError if passed 'loss_fn' is not supported.
+    """
     *n, o = f_ns.shape
     if loss_fn == LossFn.MSE:
         unit_samples = jax.random.normal(key, shape=(*n, mc_samples, o))
