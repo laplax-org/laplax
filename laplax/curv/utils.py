@@ -204,7 +204,12 @@ def concatenate_model_and_loss_fn(
     raise ValueError(msg)
 
 
-def sample_likelihood(loss_fn, f_ns, mc_samples, key):
+def sample_likelihood(
+    loss_fn: LossFn | str,
+    f_ns: PredArray,
+    mc_samples: Int,
+    key: KeyType,
+) -> TargetArray:
     r"""Sample from a loss function interpreted as negative log-likelihood.
 
     Samples labels $\tilde{y}$ from the likelihood defined as 
