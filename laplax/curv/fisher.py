@@ -6,21 +6,22 @@ import jax
 import jax.numpy as jnp
 
 from laplax.curv.loss import fetch_loss_gradient_fn
+from laplax.curv.utils import sample_likelihood
 from laplax.enums import LossFn
 from laplax.types import (
+    Array,
     Data,
     Float,
     Int,
-    Num,
-    Array,
     KeyType,
     ModelFn,
+    Num,
     Params,
     PredArray,
     TargetArray,
 )
 from laplax.util.tree import _sum, mul
-from laplax.curv.utils import sample_likelihood
+
 
 def _fisher_calculation(
     f_ns: PredArray,
@@ -74,7 +75,7 @@ def _fisher_calculation(
     else:
         # batch dim, but no mc_samples dim
         grads = jnp.expand_dims(loss_grad_fn(f_ns, ys), 1)
-    
+
     Jv = _jvp(vec)
     GtJv = jnp.einsum("nmo,no->nm", grads, Jv)
     GGtJv = jnp.einsum("nm,nmo->no", GtJv, grads)
@@ -126,8 +127,8 @@ def create_empirical_fisher_mv_without_data(
         (or a singleton batch dimension), pass 'vmap_over_data'=False.
         If 'vmap_over_data'=False and a non-singleton batch dimension is present,
         the batch dimension is handled by vectorization.
-        Compared to 'vmap_over_data'=True, this can be faster especially for large batches,
-        but the passed 'model_fn' and (optional) 'loss_grad_fn'
+        Compared to 'vmap_over_data'=True, this can be faster especially for large
+        batches, but the passed 'model_fn' and (optional) 'loss_grad_fn'
         must accept batches of data.
     """
 
@@ -135,7 +136,8 @@ def create_empirical_fisher_mv_without_data(
         grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
         if vmap_over_data:
             if not data["input"].ndim > 1:
-                msg = "Could not find a leading batch dimension. If this is intentional, pass vmap_over_data=False"
+                msg = "Could not find a leading batch dimension. "\
+                "If this is intentional, pass vmap_over_data=False."
                 raise ValueError(msg)
 
             def fisher_calculation_for_vmap(datum):
@@ -146,7 +148,6 @@ def create_empirical_fisher_mv_without_data(
 
             vmap = jax.vmap(fisher_calculation_for_vmap)(data)
             fisher = _sum(vmap, axis=0)  # over batch dimension
-            batch_size = data["input"].shape[0]
             return mul(factor, fisher)
 
         if data["input"].ndim == 1:
@@ -185,7 +186,7 @@ def create_empirical_fisher_mv(
 
     The resulting matrix vector product computes:
     $$
-    \frac{\text{num_total_samples}}{\text{num_curv_samples}} 
+    \frac{\text{num_total_samples}}{\text{num_curv_samples}}
     \cdot \sum_n J_n^\top \left(\nabla_{f_n}
     c(y=y_n,\hat{y}=f_n)\right) \left(\nabla_{f_n}
     c(y=y_n,\hat{y}=f_n)\right)^\top J_n \cdot v
@@ -226,17 +227,13 @@ def create_empirical_fisher_mv(
         (or a singleton batch dimension), pass 'vmap_over_data'=False.
         If 'vmap_over_data'=False and a non-singleton batch dimension is present,
         the batch dimension is handled by vectorization.
-        Compared to 'vmap_over_data'=True, this can be faster especially for large batches,
-        but the passed 'model_fn' and (optional) 'loss_grad_fn'
+        Compared to 'vmap_over_data'=True, this can be faster especially for large
+        batches, but the passed 'model_fn' and (optional) 'loss_grad_fn'
         must accept batches of data.
     """
     if num_curv_samples is None:
         # infer num_curv_samples from batch dimension
-        if data["input"].ndim == 1:
-            # no batch dimension present
-            num_curv_samples = 1
-        else:
-            num_curv_samples = data["input"].shape[0]
+        num_curv_samples = 1 if data["input"].ndim == 1 else data["input"].shape[0]
 
     if num_total_samples is None:
         num_total_samples = num_curv_samples
@@ -276,10 +273,11 @@ def create_MC_fisher_mv_without_data(
     c(y=\tilde{y}_{n,m},\hat{y}=f_n)\right)^\top J_n \cdot v
     $$
 
-    where $J_n$ is the Jacobian of the model w.r.t the parameters evaluated at data point $n$,
-    $c(y,\hat{y})$ is the loss function, and $v$ is the vector.
+    where $J_n$ is the Jacobian of the model w.r.t the parameters evaluated at
+    data point $n$, $c(y,\hat{y})$ is the loss function, and $v$ is the vector.
     $\tilde{y}_{n,m}$ is the m-th Monte Carlo sample of the label under the likelihood
-    induced by the loss function: $r(y|f_n) = \exp(-c(y,\hat{y}=f_n))$ at data point $n$.
+    induced by the loss function: $r(y|f_n) = \exp(-c(y,\hat{y}=f_n))$ at
+    data point $n$.
     The `factor` is a scaling factor that is used to scale the Fisher matrix.
 
     This function computes the above expression efficiently without hardcoding the
@@ -310,7 +308,8 @@ def create_MC_fisher_mv_without_data(
         grad_fn = fetch_loss_gradient_fn(loss_fn, None, handle_batches=True)
         if vmap_over_data:
             if not data["input"].ndim > 1:
-                msg = "Could not find a leading batch dimension. If this is intentional, pass vmap_over_data=False"
+                msg = "Could not find a leading batch dimension. "\
+                "If this is intentional, pass vmap_over_data=False"
                 raise ValueError(msg)
 
             batch_size = data["input"].shape[0]
@@ -369,11 +368,12 @@ def create_MC_fisher_mv(
     evaluated at data point $n$, $c(y,\hat{y})$ is the
     loss function, and $v$ is the vector.
     $\tilde{y}_{n,m}$ is the m-th Monte Carlo sample of the label under the likelihood
-    induced by the loss function: $r(y|f_n) = \exp(-c(y,\hat{y}=f_n))$ at data point $n$.
+    induced by the loss function: $r(y|f_n) =\exp(-c(y,\hat{y}=f_n))$ at data point $n$.
     The `factor` is a scaling factor that is used to scale the Fisher matrix.
 
-    This function hardcodes the dataset, making it ideal for scenarios where the dataset remains fixed.
-    
+    This function hardcodes the dataset, making it ideal for scenarios where 
+    the dataset remains fixed.
+
     Args:
         model_fn: The model's forward pass function.
         params: Model parameters.
@@ -405,11 +405,7 @@ def create_MC_fisher_mv(
     """
     if num_curv_samples is None:
         # infer num_curv_samples from batch dimension
-        if data["input"].ndim == 1:
-            # no batch dimension present
-            num_curv_samples = 1
-        else:
-            num_curv_samples = data["input"].shape[0]
+        num_curv_samples = 1 if data["input"].ndim == 1 else data["input"].shape[0]
 
     if num_total_samples is None:
         num_total_samples = num_curv_samples

@@ -5,25 +5,24 @@ from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
+from jax.random import bernoulli, categorical, normal
 
 from laplax.enums import LossFn
 from laplax.types import (
-    Int,
     Array,
     Float,
     InputArray,
-    PredArray,
-    TargetArray,
+    Int,
+    KeyType,
     Layout,
     ModelFn,
     Num,
     Params,
-    KeyType,
+    PredArray,
+    TargetArray,
 )
 from laplax.util.flatten import create_pytree_flattener, wrap_function
 from laplax.util.tree import get_size
-
-from jax.random import normal, bernoulli, categorical
 
 # -----------------------------------------------------------------------------
 # Low-rank terms
@@ -212,7 +211,7 @@ def sample_likelihood(
 ) -> TargetArray:
     r"""Sample from a loss function interpreted as negative log-likelihood.
 
-    Samples labels $\tilde{y}$ from the likelihood defined as 
+    Samples labels $\tilde{y}$ from the likelihood defined as
     $$p(y | \text{f_ns}) = e^{-\text{loss_fn}(y, \text{f_ns})}$$
 
     Args:
@@ -221,11 +220,11 @@ def sample_likelihood(
         mc_samples: Number of samples to draw
         key: Random key for sampling
 
-    Returns: 
+    Returns:
         Array samples of shape (batch_size, mc_samples, target_dimension).
 
     Raises:
-        ValueError if passed 'loss_fn' is not supported.
+        ValueError: If passed 'loss_fn' is not supported.
     """
     *n, o = f_ns.shape
     if loss_fn == LossFn.MSE:

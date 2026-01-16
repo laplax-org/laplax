@@ -3,13 +3,10 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import optax
+from jaxtyping import Array, Float, Int, Num, PRNGKeyArray, PyTree  # noqa: F401
 
 from laplax.curv.loss import create_loss_hessian_mv, fetch_loss_gradient_fn
 from laplax.enums import LossFn
-
-from laplax.types import PredArray
-
-from jaxtyping import Array, Float, Int, Num, PRNGKeyArray, PyTree  # noqa: F401
 
 # ---------------------------------------------------------------
 # Loss Gradients
@@ -69,6 +66,7 @@ def test_cross_entropy_loss_gradient():
     # Set loss gradient via autodiff
     def fn(f, y):
         return optax.softmax_cross_entropy_with_integer_labels(f[None, :], y)[0]
+
     grad_autodiff = jax.grad(fn)(logits, target)  # (3)
 
     # Set loss gradient via laplax

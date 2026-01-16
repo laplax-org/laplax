@@ -10,8 +10,8 @@ from jax import vmap
 from laplax.curv.hessian import hvp
 from laplax.enums import LossFn
 from laplax.types import (
-    Int,
     Array,
+    Int,
     Kwargs,
     Num,
     PredArray,
@@ -278,7 +278,7 @@ def fetch_loss_gradient_fn(
     else:
         msg = f"Unsupported loss function '{loss_fn}' provided."
         raise ValueError(msg)
-    
+
     loss_grad_fn = partial(grad, handle_batches=handle_batches)
     return loss_grad_fn
 
