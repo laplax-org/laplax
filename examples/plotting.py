@@ -438,8 +438,8 @@ def print_results(results_dict, title=None):
         title: Optional title to display before results
     """
     if title:
-        print(f"\n{title}")  # noqa: T201
-        print("-" * 40)  # noqa: T201
+        print(f"\n{title}")
+        print("-" * 40)
 
     # Find the longest key for alignment
     max_key_length = max(len(str(key)) for key in results_dict)
@@ -447,12 +447,12 @@ def print_results(results_dict, title=None):
     # Print each key-value pair with aligned formatting
     for key, value in results_dict.items():
         if isinstance(value, (float, np.floating, jnp.floating)):
-            print(f"{key!s:<{max_key_length}} : {value:.6f}")  # noqa: T201
+            print(f"{key!s:<{max_key_length}} : {value:.6f}")
         else:
             try:
-                print(f"{key!s:<{max_key_length}} : {value.item():.6f}")  # noqa: T201
+                print(f"{key!s:<{max_key_length}} : {value.item():.6f}")
             except Exception as _:  # noqa: BLE001
-                print(f"{key!s:<{max_key_length}} : {value}")  # noqa: T201
+                print(f"{key!s:<{max_key_length}} : {value}")
 
 
 def plot_figure_1(params, curv, *, save_fig=True):
