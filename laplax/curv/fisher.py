@@ -29,7 +29,7 @@ def _fisher_calculation(
     jvp: Callable[[Params], PredArray],
     ys: TargetArray,
     loss_grad_fn: Callable[[PredArray, TargetArray], Num[Array, "..."]],
-    vec: Params
+    vec: Params,
 ) -> Num[Array, "..."]:
     r"""Performs concrete Fisher calculation.
 
@@ -137,8 +137,10 @@ def create_empirical_fisher_mv_without_data(
         grad_fn = fetch_loss_gradient_fn(loss_fn, loss_grad_fn)
         if vmap_over_data:
             if not data["input"].ndim > 1:
-                msg = "Could not find a leading batch dimension. "\
-                "If this is intentional, pass vmap_over_data=False."
+                msg = (
+                    "Could not find a leading batch dimension. "
+                    "If this is intentional, pass vmap_over_data=False."
+                )
                 raise ValueError(msg)
 
             def fisher_calculation_for_vmap(datum):
@@ -311,8 +313,10 @@ def create_MC_fisher_mv_without_data(
         grad_fn = fetch_loss_gradient_fn(loss_fn, None, handle_batches=True)
         if vmap_over_data:
             if not data["input"].ndim > 1:
-                msg = "Could not find a leading batch dimension. "\
-                "If this is intentional, pass vmap_over_data=False"
+                msg = (
+                    "Could not find a leading batch dimension. "
+                    "If this is intentional, pass vmap_over_data=False"
+                )
                 raise ValueError(msg)
 
             batch_size = data["input"].shape[0]
