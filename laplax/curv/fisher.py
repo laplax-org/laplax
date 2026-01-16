@@ -10,6 +10,7 @@ from laplax.curv.utils import sample_likelihood
 from laplax.enums import LossFn
 from laplax.types import (
     Array,
+    CurvatureMV,
     Data,
     Float,
     Int,
@@ -181,7 +182,7 @@ def create_empirical_fisher_mv(
     num_total_samples: Int | None = None,
     vmap_over_data: bool = True,
     loss_grad_fn: Callable | None = None,
-) -> Callable[[Params], Params]:
+) -> CurvatureMV:
     r"""Creates the empirical Fisher matrix-vector product with data.
 
     The resulting matrix vector product computes:
@@ -357,7 +358,7 @@ def create_MC_fisher_mv(
     num_total_samples: Int | None = None,
     vmap_over_data: bool = True,
     mc_samples: Int | None = 1,
-) -> Callable[[Params], Params]:
+) -> CurvatureMV:
     r"""Create Monte-Carlo approximated Fisher matrix-vector product.
 
     The resulting matrix vector product computes:
