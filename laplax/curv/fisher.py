@@ -11,14 +11,24 @@ from laplax.types import (
     Data,
     Float,
     Int,
+    Num,
+    Array,
     KeyType,
     ModelFn,
     Params,
+    PredArray,
+    TargetArray,
 )
 from laplax.util.tree import _sum, mul
 from laplax.curv.utils import sample_likelihood
 
-def _fisher_calculation(f_ns, jvp, ys, loss_grad_fn, vec):
+def _fisher_calculation(
+    f_ns: PredArray,
+    jvp: Callable[[Params], PredArray],
+    ys: TargetArray,
+    loss_grad_fn: Callable[[PredArray, TargetArray], Num[Array, "..."]],
+    vec: Params
+) -> Num[Array, "..."]:
     r"""Performs concrete Fisher calculation.
 
     Calculates
