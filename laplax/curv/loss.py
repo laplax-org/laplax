@@ -10,6 +10,7 @@ from jax import vmap
 from laplax.curv.hessian import hvp
 from laplax.enums import LossFn
 from laplax.types import (
+    Int,
     Array,
     Kwargs,
     Num,
@@ -84,7 +85,7 @@ def _binary_cross_entropy_hessian_mv(
 
 def _cross_entropy_gradient(
     f: PredArray,
-    y: TargetArray,
+    y: Int | PredArray,
     handle_batches: bool,
     **kwargs: Kwargs,
 ) -> Num[Array, "..."]:
@@ -93,10 +94,7 @@ def _cross_entropy_gradient(
     This calculation uses the predicted sigmoid probabilities to compute the gradient.
     It is computed as:
 
-    $$
-    \nabla_f \text{CE}(y, f) = p - onehot(y)
-    $$
-
+    $$\nabla_f \text{CE}(y, f) = p - onehot(y)$$
     where $p = \text{sigmoid}(f) $
 
     Args:

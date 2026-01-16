@@ -277,7 +277,7 @@ def create_MC_fisher_mv_without_data(
     *,
     vmap_over_data: bool = True,
     mc_samples: Int | None = 1,
-) -> Callable[[Params, Data], Params]:
+) -> Callable[[Params, Data, KeyType], Params]:
     r"""Create Monte-Carlo approximated Fisher matrix-vector product without fixed data.
 
     The resulting matrix vector product computes:
@@ -366,7 +366,7 @@ def create_MC_fisher_mv(
     num_total_samples: Int | None = None,
     vmap_over_data: bool = True,
     mc_samples: Int | None = 1,
-) -> Callable[[Params], Params]:
+) -> Callable[[Params, KeyType], Params]:
     r"""Create Monte-Carlo approximated Fisher matrix-vector product.
 
     The resulting matrix vector product computes:

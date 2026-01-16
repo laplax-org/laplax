@@ -275,7 +275,7 @@ def test_BCE_samples_batch():
 
 
 def test_CE_samples():
-    f_n = jax.random.uniform(KEY, 10)
+    f_n = jax.random.uniform(KEY, (10,))
     samples = sample_likelihood(LossFn.CROSS_ENTROPY, f_n, 4, KEY)
     assert samples.shape == (4, 1)
 
