@@ -372,6 +372,7 @@ def fetch_loss_hessian_mv(
     | Callable[[PredArray, TargetArray], Num[Array, "..."]]
     | None,
     loss_hessian_mv: Callable | None,
+    *,
     vmap_over_data: bool = False,
     **kwargs: Kwargs,
 ) -> Callable:
