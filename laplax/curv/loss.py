@@ -254,9 +254,9 @@ def fetch_loss_gradient_fn(
             raise ValueError(msg)
         return loss_gradient_fn
 
-        if loss_fn is None:
-            msg = "Either loss_fn or loss_gradient_fn must be provided."
-            raise ValueError(msg)
+    if loss_fn is None:
+        msg = "Either loss_fn or loss_gradient_fn must be provided."
+        raise ValueError(msg)
 
     if isinstance(loss_fn, Callable):
         grad = jax.grad(loss_fn, argnums=0)
@@ -362,7 +362,7 @@ def create_loss_hessian_mv(
 
         return custom_hessian_mv
 
-    msg = "unsupported loss function provided"
+    msg = "Unsupported loss function provided"
     raise ValueError(msg)
 
 
