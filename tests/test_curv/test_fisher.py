@@ -26,23 +26,23 @@ KEY = jax.random.key(42)
 
 def test_vmap_needs_leading_batch_dim():
     sut = create_empirical_fisher_mv(
-            model_fn=lambda x: x,
-            params=jnp.array([1, 2]),
-            data={"input": jnp.array([1, 2]), "target": jnp.array([1, 2])},
-            loss_fn="mse",
-            vmap_over_data=True,
-        )
-    with pytest.raises(ValueError):
+        model_fn=lambda x: x,
+        params=jnp.array([1, 2]),
+        data={"input": jnp.array([1, 2]), "target": jnp.array([1, 2])},
+        loss_fn="mse",
+        vmap_over_data=True,
+    )
+    with pytest.raises(ValueError, match="batch"):
         sut(jnp.array([2, 3]))
     sut = create_MC_fisher_mv(
-            model_fn=lambda x: x,
-            params=jnp.array([1, 2]),
-            data={"input": jnp.array([1, 2]), "target": jnp.array([1, 2])},
-            loss_fn="mse",
-            key=KEY,
-            vmap_over_data=True,
-        )
-    with pytest.raises(ValueError):
+        model_fn=lambda x: x,
+        params=jnp.array([1, 2]),
+        data={"input": jnp.array([1, 2]), "target": jnp.array([1, 2])},
+        loss_fn="mse",
+        key=KEY,
+        vmap_over_data=True,
+    )
+    with pytest.raises(ValueError, match="batch"):
         sut(jnp.array([2, 3]))
 
 

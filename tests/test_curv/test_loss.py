@@ -141,11 +141,11 @@ def test_callable_loss_gradient():
 
 
 def test_gradients_ValueErrors_are_raised():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Either"):
         fetch_loss_gradient_fn(None, None)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Only one of"):
         fetch_loss_gradient_fn(lambda x: x, lambda y: y)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unsupported loss"):
         fetch_loss_gradient_fn("DefinitelyUnsupportedSuperObscureSpaceballLoss", None)
 
 
@@ -229,9 +229,9 @@ def test_callable_loss_hessian():
 
 
 def test_hessians_ValueErrors_are_raised():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Either"):
         fetch_loss_hessian_mv(None, None)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Only one of"):
         fetch_loss_hessian_mv(lambda x: x, lambda y: y)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unsupported"):
         fetch_loss_hessian_mv("DefinitelyUnsupportedSuperObscureSpaceballLoss", None)
