@@ -5,8 +5,10 @@ import jax.numpy as jnp
 import optax
 from jaxtyping import Array, Float, Int, Num, PRNGKeyArray, PyTree  # noqa: F401
 
-from laplax.curv.loss import create_loss_hessian_mv, fetch_loss_gradient_fn
+from laplax.curv.loss import create_loss_hessian_mv, fetch_loss_gradient_fn, fetch_loss_hessian_mv
 from laplax.enums import LossFn
+
+import pytest
 
 # ---------------------------------------------------------------
 # Loss Gradients
@@ -134,6 +136,13 @@ def test_callable_loss_gradient():
 
     assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
 
+def test_gradients_ValueErrors_are_raised():
+    with pytest.raises(ValueError):
+        fetch_loss_gradient_fn(None, None)
+    with pytest.raises(ValueError):
+        fetch_loss_gradient_fn(lambda x: x, lambda y: y)
+    with pytest.raises(ValueError):
+        fetch_loss_gradient_fn("DefinitelyUnsupportedSuperObscureSpaceballLoss", None)  
 
 # ---------------------------------------------------------------
 # Loss Hessians
@@ -212,3 +221,11 @@ def test_callable_loss_hessian():
     hess_laplax = jax.vmap(partial(hess_mv, pred=pred, target=target))(jnp.eye(10))
 
     assert jnp.allclose(hess_autodiff, hess_laplax, atol=1e-8)
+
+def test_hessians_ValueErrors_are_raised():
+    with pytest.raises(ValueError):
+        fetch_loss_hessian_mv(None, None)
+    with pytest.raises(ValueError):
+        fetch_loss_hessian_mv(lambda x: x, lambda y: y)
+    with pytest.raises(ValueError):
+        fetch_loss_hessian_mv("DefinitelyUnsupportedSuperObscureSpaceballLoss", None)  
