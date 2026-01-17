@@ -372,7 +372,7 @@ def fetch_loss_hessian_mv(
     | Callable[[PredArray, TargetArray], Num[Array, "..."]]
     | None,
     loss_hessian_mv: Callable | None,
-    vmap_over_data: bool,
+    vmap_over_data: bool = False,
     **kwargs: Kwargs,
 ) -> Callable:
     r"""Encapsulates fetching the loss hessian mv given a loss_fn or loss_hessian_mv.
@@ -392,8 +392,8 @@ def fetch_loss_hessian_mv(
             - `LossFn.NONE` for no loss.
             - A custom callable loss function that takes predictions and targets.
 
-        loss_hessian_mv: Precomputed loss hessian mv to use
-        vmap_over_data: Whether to vmap over the data
+        loss_hessian_mv: Precomputed loss hessian mv to use.
+        vmap_over_data: Whether to vmap over the data. Default False.
         **kwargs: Unused keyword arguments.
 
     Returns:
