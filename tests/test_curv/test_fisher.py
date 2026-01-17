@@ -18,7 +18,57 @@ from laplax.util.mv import to_dense
 from tests.conftest import input_target_split_jax
 
 from .cases.fisher import FisherCase
+from unittest.mock import patch
 
+KEY = jax.random.key(42)
+
+def test_vmap_needs_leading_batch_dim():
+    with pytest.raises(ValueError):
+        sut = create_empirical_fisher_mv(
+            model_fn=lambda x: x,
+            params=jnp.array([1,2]),
+            data={"input": jnp.array([1,2]), "target": jnp.array([1,2])},
+            loss_fn="mse",
+            vmap_over_data=True,
+            )
+        sut(jnp.array([2,3]))
+    with pytest.raises(ValueError):
+        sut = create_MC_fisher_mv(
+            model_fn=lambda x: x,
+            params=jnp.array([1,2]),
+            data={"input": jnp.array([1,2]), "target": jnp.array([1,2])},
+            loss_fn="mse",
+            key=KEY,
+            vmap_over_data=True,
+            )
+        sut(jnp.array([2,3]))
+
+@patch("laplax.curv.fisher.create_empirical_fisher_mv_without_data")
+def test_infer_curvature_factor_for_empirical(mock):
+    create_empirical_fisher_mv(
+        model_fn=lambda x: x,
+        params=jnp.array([1,2]),
+        data={"input": jax.random.normal(KEY, (3,2)), "target": jax.random.normal(KEY, (3,2))},
+        loss_fn="mse",
+        vmap_over_data=True,
+        )
+    mock.assert_called()
+    args, kwargs = mock.call_args
+    assert kwargs["factor"] == 1
+
+@patch("laplax.curv.fisher.create_MC_fisher_mv_without_data")
+def test_infer_curvature_factor_for_MC(mock):
+    create_MC_fisher_mv(
+        model_fn=lambda x: x,
+        params=jnp.array([1,2]),
+        data={"input": jax.random.normal(KEY, (3,2)), "target": jax.random.normal(KEY, (3,2))},
+        loss_fn="mse",
+        key=KEY,
+        vmap_over_data=True,
+        )
+    mock.assert_called()
+    args, kwargs = mock.call_args
+    assert kwargs["factor"] == 1
 
 def case1():
     return FisherCase(
@@ -245,9 +295,6 @@ def test_cross_entropy_loss(case_CE):
     fisher_laplax = case_CE.construct_fisher(fisher_mv)
 
     assert jnp.allclose(fisher_laplax, case_CE.fisher_manual)
-
-
-KEY = jax.random.key(42)
 
 
 def test_MSE_samples():
