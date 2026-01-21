@@ -29,6 +29,7 @@ local_*
 !examples/0000_tiny_laplax.ipynb
 !examples/0001_laplax_for_regression.ipynb
 !examples/0002_laplax_on_mnist.ipynb
+!examples/0003_laplax_for_active_learning.ipynb
 
 # Directories
 .tox
