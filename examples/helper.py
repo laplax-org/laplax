@@ -33,6 +33,11 @@ class DataLoader:
 
         return self.X[batch_indices], self.y[batch_indices]
 
+    def add(self, x, y):
+        new_X = jnp.concatenate((self.X, jnp.atleast_2d(x)))
+        new_Y = jnp.concatenate((self.y, jnp.atleast_2d(y)))
+        return DataLoader(new_X, new_Y, batch_size = self.batch_size, shuffle=self.shuffle)
+
 
 DEFAULT_INTERVALS = [
     (0, 2),
