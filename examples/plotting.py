@@ -550,24 +550,25 @@ def plot_figure_1(params, curv, *, save_fig=True):
     return fig, ax
 
 
-
 def plot_prediction_with_uncertainty(ax, trainloader, x_pred, y_true, y_mean, y_std):
     x = trainloader.X
     y = trainloader.y
 
     art1 = ax.scatter(x, y, marker="x", color="blue", label="Training datapoints")
 
-    art2, = ax.plot(x_pred, y_true, color="black", linestyle="--", label="True Function")
+    (art2,) = ax.plot(
+        x_pred, y_true, color="black", linestyle="--", label="True Function"
+    )
 
-    art3, = ax.plot(x_pred, y_mean, color="red", label="Mean Prediction")
-    
+    (art3,) = ax.plot(x_pred, y_mean, color="red", label="Mean Prediction")
+
     ax.legend(loc="upper right")
     ax.set_xlabel("x")
     ax.set_ylabel("y")
-    ax.set_ylim((-1., 2.))
-    if y_std is None: 
+    ax.set_ylim((-1.0, 2.0))
+    if y_std is None:
         return (art1, art2, art3)
-    
+
     art4 = ax.fill_between(
         x_pred.flatten(),
         (y_mean - 2 * y_std).flatten(),
@@ -579,9 +580,9 @@ def plot_prediction_with_uncertainty(ax, trainloader, x_pred, y_true, y_mean, y_
 
     return (art1, art2, art3, art4)
 
-def plot_uncertainty_and_maximum(ax, x_pred, y_std, next_datapoint):
 
-    art1, = ax.plot(x_pred, y_std, color="red", label="Uncertainty")
+def plot_uncertainty_and_maximum(ax, x_pred, y_std, next_datapoint):
+    (art1,) = ax.plot(x_pred, y_std, color="red", label="Uncertainty")
     art2 = ax.axvline(next_datapoint, color="blue", label="Next datapoint")
     ax.legend(loc="upper right")
     ax.set_xlabel("x")
@@ -589,4 +590,3 @@ def plot_uncertainty_and_maximum(ax, x_pred, y_std, next_datapoint):
     ax.set_ylim((0, 0.5))
 
     return (art1, art2)
-
