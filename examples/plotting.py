@@ -559,7 +559,7 @@ def plot_prediction_with_uncertainty(ax, trainloader, x_pred, y_true, y_mean, y_
 
     art2, = ax.plot(x_pred, y_true, color="black", linestyle="--", label="True Function")
 
-    art3, = ax.plot(x_pred, y_mean, color="red", label="MAP Prediction")
+    art3, = ax.plot(x_pred, y_mean, color="red", label="Mean Prediction")
     
     ax.legend(loc="upper right")
     ax.set_xlabel("x")
