@@ -40,6 +40,9 @@ class DataLoader:
             new_X, new_Y, batch_size=self.batch_size, shuffle=self.shuffle
         )
 
+    def __len__(self):
+        return self.dataset_size
+
 
 DEFAULT_INTERVALS = [
     (0, 2),
