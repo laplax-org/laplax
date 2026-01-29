@@ -550,7 +550,7 @@ def plot_figure_1(params, curv, *, save_fig=True):
     return fig, ax
 
 
-def plot_prediction_with_uncertainty(ax, trainloader, x_pred, y_true, y_mean, y_std):
+def plot_prediction_with_uncertainty(ax, trainloader, x_pred, y_true, y_mean, y_std, ylims=(-1,2)):
     x = trainloader.X
     y = trainloader.y
 
@@ -565,7 +565,7 @@ def plot_prediction_with_uncertainty(ax, trainloader, x_pred, y_true, y_mean, y_
     ax.legend(loc="upper right")
     ax.set_xlabel("x")
     ax.set_ylabel("y")
-    ax.set_ylim((-1.0, 2.0))
+    ax.set_ylim(ylims)
     if y_std is None:
         return (art1, art2, art3)
 
@@ -581,12 +581,12 @@ def plot_prediction_with_uncertainty(ax, trainloader, x_pred, y_true, y_mean, y_
     return (art1, art2, art3, art4)
 
 
-def plot_uncertainty_and_maximum(ax, x_pred, y_std, next_datapoint):
+def plot_uncertainty_and_maximum(ax, x_pred, y_std, next_datapoint, ymax=0.5):
     (art1,) = ax.plot(x_pred, y_std, color="red", label="Uncertainty")
     art2 = ax.axvline(next_datapoint, color="blue", label="Next datapoint")
     ax.legend(loc="upper right")
     ax.set_xlabel("x")
     ax.set_ylabel("standard deviation of y")
-    ax.set_ylim((0, 0.5))
+    ax.set_ylim((0, ymax))
 
     return (art1, art2)
