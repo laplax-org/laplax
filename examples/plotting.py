@@ -550,7 +550,9 @@ def plot_figure_1(params, curv, *, save_fig=True):
     return fig, ax
 
 
-def plot_prediction_with_uncertainty(ax, trainloader, x_pred, y_true, y_mean, y_std, ylims=(-1,2)):
+def plot_prediction_with_uncertainty(
+    ax, trainloader, x_pred, y_true, y_mean, y_std, ylims=(-1, 2)
+):
     x = trainloader.X
     y = trainloader.y
 
