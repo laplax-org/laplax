@@ -562,11 +562,11 @@ def plot_prediction_with_uncertainty(ax, trainloader, x_pred, y_true, y_mean, y_
 
     (art3,) = ax.plot(x_pred, y_mean, color="red", label="Mean Prediction")
 
-    ax.legend(loc="upper right")
     ax.set_xlabel("x")
     ax.set_ylabel("y")
     ax.set_ylim(ylims)
     if y_std is None:
+        ax.legend(loc="upper right")
         return (art1, art2, art3)
 
     art4 = ax.fill_between(
@@ -577,6 +577,7 @@ def plot_prediction_with_uncertainty(ax, trainloader, x_pred, y_true, y_mean, y_
         alpha=0.2,
         label="95% confidence interval",
     )
+    ax.legend(loc="upper right")
 
     return (art1, art2, art3, art4)
 
@@ -584,7 +585,7 @@ def plot_prediction_with_uncertainty(ax, trainloader, x_pred, y_true, y_mean, y_
 def plot_uncertainty_and_maximum(ax, x_pred, y_std, next_datapoint, ymax=0.5):
     (art1,) = ax.plot(x_pred, y_std, color="red", label="Uncertainty")
     art2 = ax.axvline(next_datapoint, color="blue", label="Next datapoint")
-    ax.legend(loc="upper right")
+    ax.legend(loc="lower left")
     ax.set_xlabel("x")
     ax.set_ylabel("standard deviation of y")
     ax.set_ylim((0, ymax))
