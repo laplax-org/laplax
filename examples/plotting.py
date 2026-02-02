@@ -4,6 +4,7 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+from jax.scipy.interpolate import RegularGridInterpolator
 import matplotlib.pyplot as plt
 import numpy as np
 from tueplots import bundles
@@ -593,3 +594,29 @@ def plot_uncertainty_and_maximum(ax, x_pred, y_std, next_datapoint, ymax=0.5):
     ax.set_ylim((0, ymax))
 
     return (art1, art2)
+
+def plot_data_and_uncertainty_around_prediction(ax, x_pred, prediction, ground_truth, data, uncertatinty):
+    ground_truth_difference = ground_truth - prediction
+    (art1,) = ax.plot(x_pred, ground_truth_difference, color="black", linestyle="--", label="True Function - Prediction")
+    
+    y = data.y.squeeze()
+    x = data.X.squeeze()
+    datapoint_difference = y - RegularGridInterpolator(x_pred.mT, prediction)(x)
+    art2 = ax.scatter(data.X, datapoint_difference, marker="x", color="blue", label="Training datapoints - Prediction")
+    
+    art3 = ax.fill_between(
+        x_pred.flatten(),
+        (- 2 * uncertatinty).flatten(),
+        (+ 2 * uncertatinty).flatten(),
+        color="red",
+        alpha=0.2,
+        label="95% confidence interval around prediction",
+    )
+    
+    ax.legend(loc="lower left")
+    ax.set_xlabel("x")
+    ax.set_ylabel("Difference from mean prediction")
+    #ax.set_ylim((0, ymax))
+    return (art1, art2, art3)
+
+
