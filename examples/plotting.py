@@ -4,9 +4,9 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
-from jax.scipy.interpolate import RegularGridInterpolator
 import matplotlib.pyplot as plt
 import numpy as np
+from jax.scipy.interpolate import RegularGridInterpolator
 from tueplots import bundles
 
 
@@ -595,35 +595,54 @@ def plot_uncertainty_and_maximum(ax, x_pred, y_std, next_datapoint, ymax=0.5):
 
     return (art1, art2)
 
-def plot_data_and_uncertainty_around_prediction(ax, x_pred, prediction, ground_truth, data, uncertatinty=None, next_datapoint=None):
-    
+
+def plot_data_and_uncertainty_around_prediction(
+    ax, x_pred, prediction, ground_truth, data, uncertainty=None, next_datapoint=None
+):
+    x_pred = x_pred.squeeze()
+    ground_truth = ground_truth.squeeze()
+    prediction = prediction.squeeze()
+
     ground_truth_difference = ground_truth - prediction
-    (art1,) = ax.plot(x_pred, ground_truth_difference, color="black", linestyle="--", label="True Function")
-    
+
+    (art1,) = ax.plot(
+        x_pred,
+        ground_truth_difference,
+        color="black",
+        linestyle="--",
+        label="True Function",
+    )
+
     y = data.y.squeeze()
     x = data.X.squeeze()
-    datapoint_difference = y - RegularGridInterpolator(x_pred.mT, prediction)(x)
-    art2 = ax.scatter(data.X, datapoint_difference, marker="x", color="blue", label="Training datapoints")
+    datapoint_difference = y - RegularGridInterpolator(x_pred[None, :], prediction)(x)
+    art2 = ax.scatter(
+        data.X,
+        datapoint_difference,
+        marker="x",
+        color="blue",
+        label="Training datapoints",
+    )
     if uncertainty is not None:
         art3 = ax.fill_between(
             x_pred.flatten(),
-            (- 2 * uncertatinty).flatten(),
-            (+ 2 * uncertatinty).flatten(),
+            (-2 * uncertainty).flatten(),
+            (+2 * uncertainty).flatten(),
             color="red",
             alpha=0.2,
             label="95% confidence interval",
         )
     if next_datapoint is not None:
         art4 = ax.axvline(next_datapoint, color="blue", label="Next datapoint")
-    
+
     ax.legend(loc="lower left")
     ax.set_xlabel("x")
     ax.set_ylabel("Difference from mean prediction")
     ax.set_ylim((-0.6, 0.6))
-    
+
     artists_to_return = (art1, art2)
-    artists_to_return += art3 if art3 is not None
-    artists_to_return += art4 if art4 is not None
+    if uncertainty is not None:
+        artists_to_return += (art3,)
+    if next_datapoint is not None:
+        artists_to_return += (art4,)
     return artists_to_return
-
-
