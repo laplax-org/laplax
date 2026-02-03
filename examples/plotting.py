@@ -595,23 +595,24 @@ def plot_uncertainty_and_maximum(ax, x_pred, y_std, next_datapoint, ymax=0.5):
 
     return (art1, art2)
 
-def plot_data_and_uncertainty_around_prediction(ax, x_pred, prediction, ground_truth, data, uncertatinty, next_datapoint=None):
+def plot_data_and_uncertainty_around_prediction(ax, x_pred, prediction, ground_truth, data, uncertatinty=None, next_datapoint=None):
+    
     ground_truth_difference = ground_truth - prediction
-    (art1,) = ax.plot(x_pred, ground_truth_difference, color="black", linestyle="--", label="True Function - Prediction")
+    (art1,) = ax.plot(x_pred, ground_truth_difference, color="black", linestyle="--", label="True Function")
     
     y = data.y.squeeze()
     x = data.X.squeeze()
     datapoint_difference = y - RegularGridInterpolator(x_pred.mT, prediction)(x)
-    art2 = ax.scatter(data.X, datapoint_difference, marker="x", color="blue", label="Training datapoints - Prediction")
-    
-    art3 = ax.fill_between(
-        x_pred.flatten(),
-        (- 2 * uncertatinty).flatten(),
-        (+ 2 * uncertatinty).flatten(),
-        color="red",
-        alpha=0.2,
-        label="95% confidence interval around prediction",
-    )
+    art2 = ax.scatter(data.X, datapoint_difference, marker="x", color="blue", label="Training datapoints")
+    if uncertainty is not None:
+        art3 = ax.fill_between(
+            x_pred.flatten(),
+            (- 2 * uncertatinty).flatten(),
+            (+ 2 * uncertatinty).flatten(),
+            color="red",
+            alpha=0.2,
+            label="95% confidence interval",
+        )
     if next_datapoint is not None:
         art4 = ax.axvline(next_datapoint, color="blue", label="Next datapoint")
     
@@ -619,6 +620,10 @@ def plot_data_and_uncertainty_around_prediction(ax, x_pred, prediction, ground_t
     ax.set_xlabel("x")
     ax.set_ylabel("Difference from mean prediction")
     ax.set_ylim((-0.6, 0.6))
-    return (art1, art2, art3)
+    
+    artists_to_return = (art1, art2)
+    artists_to_return += art3 if art3 is not None
+    artists_to_return += art4 if art4 is not None
+    return artists_to_return
 
 
