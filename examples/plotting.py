@@ -559,7 +559,7 @@ def plot_data_and_uncertainty_around_prediction(
     prediction = prediction.squeeze()
 
     ground_truth_difference = ground_truth - prediction
-
+    ax.plot(x_pred, jnp.zeros_like(x_pred), color="red", label="Mean Prediction")
     (art1,) = ax.plot(
         x_pred,
         ground_truth_difference,
