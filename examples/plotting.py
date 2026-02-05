@@ -601,3 +601,50 @@ def plot_data_and_uncertainty_around_prediction(
     if next_datapoint is not None:
         artists_to_return += (art4,)
     return artists_to_return
+
+
+def plot_model_comparison(
+    ax, x_pred, ground_truth, prediction_1, prediction_2, dataloader=None
+):
+    ground_truth = ground_truth.squeeze()
+    x_pred = x_pred.squeeze()
+
+    ax.plot(
+        x_pred,
+        jnp.zeros_like(x_pred),
+        color="black",
+        linestyle="--",
+        label="True Function",
+    )
+    prediction_1_difference = prediction_1.squeeze() - ground_truth
+    ax.plot(
+        x_pred,
+        prediction_1_difference,
+        color="red",
+        label="Passively learned prediction",
+    )
+
+    prediction_2_difference = prediction_2.squeeze() - ground_truth
+    ax.plot(
+        x_pred,
+        prediction_2_difference,
+        color="orange",
+        label="Actively learned Prediction",
+    )
+    if dataloader is not None:
+        y = dataloader.y.squeeze()
+        x = dataloader.X.squeeze()
+        datapoint_difference = y - RegularGridInterpolator(
+            x_pred[None, :], ground_truth
+        )(x)
+        ax.scatter(
+            x,
+            datapoint_difference,
+            marker="x",
+            color="blue",
+            label="Training datapoints",
+        )
+    ax.set_ylim((-0.6, 0.6))
+    ax.set_xlabel("x")
+    ax.set_ylabel("Difference from ground truth")
+    ax.legend(loc="lower right")
