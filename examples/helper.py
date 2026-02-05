@@ -1,7 +1,28 @@
+from contextlib import contextmanager
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import random
+from loguru import logger
+
+
+# Context manager to suppress info-level logging
+@contextmanager
+def suppress_info_logging(module: str):
+    logger.disable(module)
+    try:
+        # Only disable INFO and below, allow WARNING and above
+        logger.remove()
+        logger.add(
+            lambda _: None,  # Sink that does nothing
+            level="INFO",  # Only suppress INFO and below
+            filter=lambda record: record["name"] == module,
+        )
+        yield
+    finally:
+        logger.enable(module)
+        logger.remove()
 
 
 class DataLoader:
