@@ -585,7 +585,7 @@ def plot_data_and_uncertainty_around_prediction(
             (+2 * uncertainty).flatten(),
             color="red",
             alpha=0.2,
-            label="95% confidence interval",
+            label="Information criterion",
         )
     if next_datapoint is not None:
         art4 = ax.axvline(next_datapoint, color="blue", label="Next datapoint")
@@ -593,7 +593,7 @@ def plot_data_and_uncertainty_around_prediction(
     ax.legend(loc="lower left")
     ax.set_xlabel("x")
     ax.set_ylabel("Difference from mean prediction")
-    ax.set_ylim((-0.6, 0.6))
+    # ax.set_ylim((-0.6, 0.6))
 
     artists_to_return = (art1, art2)
     if uncertainty is not None:
