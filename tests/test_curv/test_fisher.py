@@ -326,10 +326,29 @@ def test_BCE_samples():
     assert samples.shape == (4, 1)
 
 
+def test_BCE_samples_probabilities_match_logits():
+    logit = jnp.array([2.0], dtype=float)
+    samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, logit, 20_000, KEY)
+    expected_prob = jax.nn.sigmoid(logit)[0]
+    np.testing.assert_allclose(samples.mean(), expected_prob, atol=0.02)
+
+
+def test_BCE_samples_multi_output_single_datum():
+    f_n = jnp.array([0.6, -0.3], dtype=float)
+    samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, f_n, 4, KEY)
+    assert samples.shape == (4, 2)
+
+
 def test_BCE_samples_batch():
     f_ns = jax.random.uniform(KEY, (3, 1))
     samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, f_ns, 4, KEY)
     assert samples.shape == (3, 4, 1)
+
+
+def test_BCE_samples_multi_output_batch():
+    f_ns = jax.random.uniform(KEY, (3, 2))
+    samples = sample_likelihood(LossFn.BINARY_CROSS_ENTROPY, f_ns, 4, KEY)
+    assert samples.shape == (3, 4, 2)
 
 
 def test_CE_samples():

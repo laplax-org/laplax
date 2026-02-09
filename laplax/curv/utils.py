@@ -236,8 +236,9 @@ def sample_likelihood(
         return categorical(key, f_ns, shape=(*n, mc_samples), replace=True)[..., None]
 
     if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
-        f_ns = jnp.expand_dims(f_ns, axis=-2)
-        bool_samples = bernoulli(key, f_ns, shape=(*n, mc_samples, 1))
+        probs = jax.nn.sigmoid(f_ns)
+        probs = jnp.expand_dims(probs, axis=-2)
+        bool_samples = bernoulli(key, probs, shape=(*n, mc_samples, o))
         return jnp.astype(bool_samples, jnp.float32)
 
     msg = f"Unsupported LossFn {loss_fn} to sample from."
