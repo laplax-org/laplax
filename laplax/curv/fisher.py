@@ -401,7 +401,7 @@ def create_MC_fisher_mv(
         mc_samples: Number of MC samples to use. Defaults to 1.
 
     Returns:
-        A function that takes a vector and key and computes
+        A function that takes a vector and computes
         the Monte-Carlo Fisher matrix-vector product.
 
     Note:
