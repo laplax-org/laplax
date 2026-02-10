@@ -551,56 +551,109 @@ def plot_figure_1(params, curv, *, save_fig=True):
     return fig, ax
 
 
-def plot_data_and_uncertainty_around_prediction(
-    ax, x_pred, prediction, ground_truth, data, uncertainty=None, next_datapoint=None
-):
-    x_pred = x_pred.squeeze()
-    ground_truth = ground_truth.squeeze()
-    prediction = prediction.squeeze()
+class DifferencePlot:
+    def __init__(
+        self,
+        ax,
+        x,
+        pred,
+        true=None,
+        data=None,
+        criterion=None,
+        next_location=None,
+        interesting_points=None,
+        no_sampling_zone=None,
+    ):
+        self.x = x.squeeze()
+        self.pred = pred.squeeze()
+        self.ax = ax
+        self.artists = []
+        self.plot_prediction()
+        if true is not None:
+            self.plot_ground_truth(true.squeeze())
+        if data is not None:
+            self.plot_datapoints(data)
+        if criterion is not None:
+            self.plot_criterion(criterion.squeeze())
+        if next_location is not None:
+            self.plot_next_datapoint(next_location)
+        if interesting_points is not None:
+            for point in interesting_points:
+                self.plot_interesting_point(point)
+        if no_sampling_zone is not None:
+            self.plot_no_sampling_zone(no_sampling_zone)
+        self.finalize_plot()
 
-    ground_truth_difference = ground_truth - prediction
-    ax.plot(x_pred, jnp.zeros_like(x_pred), color="red", label="Mean Prediction")
-    (art1,) = ax.plot(
-        x_pred,
-        ground_truth_difference,
-        color="black",
-        linestyle="--",
-        label="True Function",
-    )
+    def plot_prediction(self):
+        self.ax.plot(
+            self.x, jnp.zeros_like(self.x), color="red", label="Mean Prediction"
+        )
 
-    y = data.y.squeeze()
-    x = data.X.squeeze()
-    datapoint_difference = y - RegularGridInterpolator(x_pred[None, :], prediction)(x)
-    art2 = ax.scatter(
-        data.X,
-        datapoint_difference,
-        marker="x",
-        color="blue",
-        label="Training datapoints",
-    )
-    if uncertainty is not None:
-        art3 = ax.fill_between(
-            x_pred.flatten(),
-            (-2 * uncertainty).flatten(),
-            (+2 * uncertainty).flatten(),
+    def plot_ground_truth(self, true):
+        ground_truth_difference = true - self.pred
+        artist = self.ax.plot(
+            self.x,
+            ground_truth_difference,
+            color="black",
+            linestyle="--",
+            label="True Function",
+        )
+        self.artists += artist
+
+    def plot_datapoints(self, data):
+        ys = data.y.squeeze()
+        xs = data.X.squeeze()
+        datapoint_difference = ys - RegularGridInterpolator(self.x[None, :], self.pred)(
+            xs
+        )
+        artist = self.ax.scatter(
+            xs,
+            datapoint_difference,
+            marker="x",
+            color="blue",
+            label="Datapoints",
+        )
+        self.artists += (artist,)
+
+    def plot_criterion(self, criterion):
+        artist = self.ax.fill_between(
+            self.x,
+            -criterion,
+            +criterion,
             color="red",
             alpha=0.2,
             label="Information criterion",
         )
-    if next_datapoint is not None:
-        art4 = ax.axvline(next_datapoint, color="blue", label="Next datapoint")
+        self.artists += (artist,)
 
-    ax.legend(loc="lower left")
-    ax.set_xlabel("x")
-    ax.set_ylabel("Difference from mean prediction")
-    # ax.set_ylim((-0.6, 0.6))
+    def plot_uncertainty(self, uncertainty):
+        artist = self.ax.fill_between(
+            self.x,
+            -2 * uncertainty,
+            +2 * uncertainty,
+            color="red",
+            alpha=0.2,
+            label="95% confidence interval",
+        )
+        self.artists += (artist,)
 
-    artists_to_return = (art1, art2)
-    if uncertainty is not None:
-        artists_to_return += (art3,)
-    if next_datapoint is not None:
-        artists_to_return += (art4,)
-    return artists_to_return
+    def plot_next_datapoint(self, location):
+        artist = self.ax.axvline(location, color="blue", label="Next datapoint")
+        self.artists += (artist,)
+
+    def plot_interesting_point(self, point):
+        artist = self.ax.axvspan(point - 0.1, point + 0.1, alpha=0.2, color="yellow")
+        self.artists += (artist,)
+
+    def plot_no_sampling_zone(self, zone):
+        artist = self.ax.axvspan(zone[0], zone[1], alpha=0.2, color="grey")
+        self.artists += (artist,)
+
+    def finalize_plot(self):
+        ax = self.ax
+        ax.set_xlabel("x")
+        ax.set_ylabel("Difference from mean prediction")
+        ax.legend(loc="lower right")
 
 
 def plot_model_comparison(
