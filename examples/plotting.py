@@ -1,5 +1,6 @@
 """Plotting utilities."""
 
+from collections.abc import Iterable
 from pathlib import Path
 
 import jax
@@ -554,7 +555,7 @@ def plot_figure_1(params, curv, *, save_fig=True):
 class DifferencePlot:
     def __init__(
         self,
-        ax,
+        axs,
         x,
         pred,
         true=None,
@@ -566,7 +567,8 @@ class DifferencePlot:
     ):
         self.x = x.squeeze()
         self.pred = pred.squeeze()
-        self.ax = ax
+        self.axs = axs
+        self.ax = axs[0] if isinstance(axs, Iterable) else axs
         self.artists = []
         self.plot_prediction()
         if true is not None:
@@ -616,7 +618,7 @@ class DifferencePlot:
         self.artists += (artist,)
 
     def plot_criterion(self, criterion):
-        artist = self.ax.fill_between(
+        artist = self.axs[1].fill_between(
             self.x,
             -criterion,
             +criterion,
@@ -624,6 +626,8 @@ class DifferencePlot:
             alpha=0.2,
             label="Information criterion",
         )
+        self.axs[1].set_ylabel("Information")
+        symmetrize_y_axis(self.axs[1])
         self.artists += (artist,)
 
     def plot_uncertainty(self, uncertainty):
@@ -646,14 +650,22 @@ class DifferencePlot:
         self.artists += (artist,)
 
     def plot_no_sampling_zone(self, zone):
-        artist = self.ax.axvspan(zone[0], zone[1], alpha=0.2, color="grey")
+        artist = self.ax.axvspan(
+            zone[0], zone[1], alpha=0.2, color="grey", label="No sampling zone"
+        )
         self.artists += (artist,)
 
     def finalize_plot(self):
         ax = self.ax
+        symmetrize_y_axis(ax)
         ax.set_xlabel("x")
         ax.set_ylabel("Difference from mean prediction")
         ax.legend(loc="lower right")
+
+
+def symmetrize_y_axis(axes):
+    y_max = np.max(np.abs(axes.get_ylim()))
+    axes.set_ylim(ymin=-y_max, ymax=y_max)
 
 
 def plot_model_comparison(
