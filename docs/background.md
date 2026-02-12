@@ -44,7 +44,7 @@ $$
 f_{\theta^{\text{lin}}}(\cdot, \theta) = f_{\theta^*}(\cdot, \theta^*) + \mathcal{J}_{\theta^*}(\cdot)(\theta - \theta^*)
 $$
 
-and using the linear closure of Gaussian distributions[@immer_improving_2021], yielding **closed-form** output-space uncertainty.
+and using the linear closure of Gaussian distributions[@immer_improving_2021], yielding **closed-form** output-space uncertainty.[^1]
 [^1]: For classification, the logit-space uncertainty is analytic, but the predictive distribution has to be approximated, e.g., through Monte Carlo sampling and averaging the softmax probabilities.
 
 The linearised approach is guaranteed to yield positive-definite weight-space covariance matrices for a strictly convex regulariser $\Omega$ at any weight configuration $\theta$, not just at MAP estimates (that are hard to obtain exactly in deep learning settings).
