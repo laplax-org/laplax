@@ -60,3 +60,4 @@ uv run mkdocs serve
 ```
 
 This starts a local development server you can view at http://127.0.0.1:8000. If you want to add a new example notebook, make sure to convert it to `.py` format using `jupytext` as described above, and place it in the `examples` directory. When the docs are built, the notebook will be run and converted to `.md` format automatically and placed in an `_examples` directory. In order to link to the notebook in the documentation, make sure to add it to the `Examples` section under `nav` in the `mkdocs.yml` file.
+If you don't want to execute the example notebooks everytime the docs are built locally, comment the line `- docs/convert_examples.py` in `mkdocs.yml`.
