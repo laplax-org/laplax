@@ -7,7 +7,9 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from IPython.display import HTML
 from jax.scipy.interpolate import RegularGridInterpolator
+from matplotlib.animation import FuncAnimation
 from tueplots import bundles
 
 
@@ -713,3 +715,25 @@ def plot_model_comparison(
     ax.set_xlabel("x")
     ax.set_ylabel("Difference from ground truth")
     ax.legend(loc="lower right")
+
+
+def show_animation(plot_data, interesting_points=None, no_sampling_zone=None):
+    fig, ax1 = plt.subplots(figsize=(10, 5))
+    ax2 = ax1.twinx()
+
+    def update(frame):
+        ax1.clear()
+        ax2.clear()
+        plot = DifferencePlot(
+            (ax1, ax2), *(plot_data[frame]), interesting_points, no_sampling_zone
+        )
+        ax2.yaxis.set_label_position("right")
+        ax2.yaxis.tick_right()
+        ax2.set_ylim((-2.0, 2.0))
+        return plot.artists
+
+    animation = FuncAnimation(
+        fig, update, frames=len(plot_data), interval=1500, repeat_delay=2000
+    )
+    plt.close(fig)  # Prevent duplicate figure
+    return HTML(animation.to_jshtml())
