@@ -759,7 +759,7 @@ def plot_decision_boundaries(ax=None):
 
 def plot_datapoints(xs, ys, labels, ax=None):
     fig = ax if ax is not None else plt
-    fig.scatter(xs, ys, c=labels)
+    fig.scatter(xs, ys, c=labels, edgecolor="black")
 
 
 def plot_prediction(labels, uncertainty=None, ax=None):
