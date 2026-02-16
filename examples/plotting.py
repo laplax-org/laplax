@@ -10,6 +10,7 @@ import numpy as np
 from IPython.display import HTML
 from jax.scipy.interpolate import RegularGridInterpolator
 from matplotlib.animation import FuncAnimation
+from matplotlib.colors import Normalize
 from tueplots import bundles
 
 
@@ -731,6 +732,64 @@ def show_animation(plot_data, interesting_points=None, no_sampling_zone=None):
         ax2.yaxis.tick_right()
         ax2.set_ylim((-2.0, 2.0))
         return plot.artists
+
+    animation = FuncAnimation(
+        fig, update, frames=len(plot_data), interval=1500, repeat_delay=2000
+    )
+    plt.close(fig)  # Prevent duplicate figure
+    return HTML(animation.to_jshtml())
+
+
+# Bonus: Classification
+def plot_decision_boundaries(ax=None):
+    def f1(x):
+        return 1.9 * x**3 - 1.5 * x**2 + 0.5
+
+    def f2(x):
+        return -1.5 * x**2 + 2 * x + 0.2
+
+    fig = ax if ax is not None else plt
+    xs = jnp.linspace(0, 1, 100)
+    condition = jnp.logical_and(xs > 0.15343, xs < 0.94062)
+    boundary_1 = f1(xs)
+    boundary_2 = f2(xs)
+    fig.plot(xs[condition], boundary_1[condition], linestyle="--", color="black")
+    fig.plot(xs, boundary_2, linestyle="--", color="black")
+
+
+def plot_datapoints(xs, ys, labels, ax=None):
+    fig = ax if ax is not None else plt
+    fig.scatter(xs, ys, c=labels)
+
+
+def plot_prediction(labels, uncertainty=None, ax=None):
+    fig = ax if ax is not None else plt
+    labels = labels.reshape((100, 100))
+    if uncertainty is not None:
+        norm = Normalize(uncertainty.min(), uncertainty.max())
+        alpha = norm(uncertainty)
+        alpha = alpha.reshape((100, 100))
+    else:
+        alpha = 0.3
+    fig.imshow(labels, origin="lower", extent=(0, 1, 0, 1), alpha=alpha)
+
+
+def plot_next_point(point, ax=None):
+    fig = ax if ax is not None else plt
+    fig.scatter(point[0], point[1], marker="v", c="black")
+
+
+def show_animation_classification(plot_data):
+    fig, ax = plt.subplots(figsize=(5, 5))
+
+    def update(frame):
+        ax.clear()
+        grid_preds, dl, data_preds, uncertainty, next_point = plot_data[frame]
+
+        plot_prediction(grid_preds, uncertainty, ax)
+        plot_datapoints(dl.X[:, 0], dl.X[:, 1], data_preds, ax)
+        plot_decision_boundaries(ax)
+        plot_next_point(next_point, ax)
 
     animation = FuncAnimation(
         fig, update, frames=len(plot_data), interval=1500, repeat_delay=2000
