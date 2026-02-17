@@ -755,7 +755,7 @@ def plot_decision_boundaries(ax=None):
     boundary_2 = f2(xs)
     ax.plot(xs[condition], boundary_1[condition], linestyle="--", color="black")
     ax.plot(xs, boundary_2, linestyle="--", color="black", label="True boundary")
-    ax.legend()
+    ax.legend(loc="lower right")
 
 
 def plot_datapoints(xs, ys, labels, ax=None):
@@ -764,7 +764,7 @@ def plot_datapoints(xs, ys, labels, ax=None):
     ax.scatter(-1, -1, c="white", edgecolor="black", label="Datapoints")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.legend()
+    ax.legend(loc="lower right")
 
 
 def plot_prediction(labels, uncertainty=None, ax=None):
@@ -790,7 +790,7 @@ def plot_next_point(point, ax=None):
         edgecolor="black",
         label="Next location",
     )
-    ax.legend()
+    ax.legend(loc="lower right")
 
 
 def show_animation_classification(plot_data):
