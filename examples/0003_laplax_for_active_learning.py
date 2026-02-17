@@ -103,7 +103,7 @@ key = random.key(seed)
 var_widget = widgets.FloatLogSlider(
     value=0.05, base=10, min=-3, max=0, step=0.001, description="Variance"
 )
-display(var_widget)
+display(var_widget)  # noqa: F821
 
 # %%
 sample_variance = var_widget.value
@@ -292,7 +292,7 @@ lib_dropdown = widgets.Dropdown(
     value="full",
     description="Curv. est.:",
 )
-display(lib_dropdown)
+display(lib_dropdown)  # noqa: F821
 
 # %%
 print(f"Curvature will be estimated using a {lib_dropdown.value} approximation.")
@@ -688,7 +688,7 @@ sampling_dropdown = widgets.Dropdown(
     value="Random Uniform",
     description="Sampling:",
 )
-display(sampling_dropdown)
+display(sampling_dropdown)  # noqa: F821
 
 # %%
 n_passive_datapoints = n_initial_datapoints + learning_rounds
