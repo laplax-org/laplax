@@ -10,7 +10,7 @@ import numpy as np
 from IPython.display import HTML
 from jax.scipy.interpolate import RegularGridInterpolator
 from matplotlib.animation import FuncAnimation
-from matplotlib.colors import Normalize
+from matplotlib.colors import SymLogNorm
 from tueplots import bundles
 
 
@@ -748,39 +748,53 @@ def plot_decision_boundaries(ax=None):
     def f2(x):
         return -1.5 * x**2 + 2 * x + 0.2
 
-    fig = ax if ax is not None else plt
+    ax = ax if ax is not None else plt.gca()
     xs = jnp.linspace(0, 1, 100)
     condition = jnp.logical_and(xs > 0.15343, xs < 0.94062)
     boundary_1 = f1(xs)
     boundary_2 = f2(xs)
-    fig.plot(xs[condition], boundary_1[condition], linestyle="--", color="black")
-    fig.plot(xs, boundary_2, linestyle="--", color="black")
+    ax.plot(xs[condition], boundary_1[condition], linestyle="--", color="black")
+    ax.plot(xs, boundary_2, linestyle="--", color="black", label="True boundary")
+    ax.legend()
 
 
 def plot_datapoints(xs, ys, labels, ax=None):
-    fig = ax if ax is not None else plt
-    fig.scatter(xs, ys, c=labels, edgecolor="black")
+    ax = ax if ax is not None else plt.gca()
+    ax.scatter(xs, ys, c=labels, edgecolor="black")
+    ax.scatter(-1, -1, c="white", edgecolor="black", label="Datapoints")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.legend()
 
 
 def plot_prediction(labels, uncertainty=None, ax=None):
-    fig = ax if ax is not None else plt
+    ax = ax if ax is not None else plt.gca()
     labels = labels.reshape((100, 100))
     if uncertainty is not None:
-        norm = Normalize(uncertainty.min(), uncertainty.max())
-        alpha = norm(uncertainty)
+        uncertainty = np.asarray(uncertainty)
+        norm = SymLogNorm(uncertainty.min(), uncertainty.max())
+        alpha = (norm(uncertainty) + 0.0001) * 0.999
         alpha = alpha.reshape((100, 100))
     else:
-        alpha = 0.3
-    fig.imshow(labels, origin="lower", extent=(0, 1, 0, 1), alpha=alpha)
+        alpha = 0.4
+    ax.imshow(labels, origin="lower", extent=(0, 1, 0, 1), alpha=alpha)
 
 
 def plot_next_point(point, ax=None):
-    fig = ax if ax is not None else plt
-    fig.scatter(point[0], point[1], marker="v", c="black")
+    ax = ax if ax is not None else plt.gca()
+    ax.scatter(
+        point[0],
+        point[1],
+        marker="v",
+        c="red",
+        edgecolor="black",
+        label="Next location",
+    )
+    ax.legend()
 
 
 def show_animation_classification(plot_data):
-    fig, ax = plt.subplots(figsize=(5, 5))
+    fig, ax = plt.subplots(figsize=(6, 6))
 
     def update(frame):
         ax.clear()
