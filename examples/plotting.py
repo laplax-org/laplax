@@ -809,4 +809,6 @@ def show_animation_classification(plot_data):
         fig, update, frames=len(plot_data), interval=1500, repeat_delay=2000
     )
     plt.close(fig)  # Prevent duplicate figure
+    # with open("animation.html", "w") as f:
+    #    f.write(animation.to_jshtml())
     return HTML(animation.to_jshtml())
