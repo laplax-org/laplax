@@ -1055,6 +1055,12 @@ uncertainty = uncertainties[jnp.arange(10000), preds]
 # We visualize the uncertainty as the alpha-value of the prediction colors,
 # with stronger color corresponding to larger uncertainty.
 #
+# 'get_next_point_sampled' is an alternative rule to find the next datapoint,
+# which samples from the data plane by interpreting the uncertainty as logits to
+# a categorical distribution. This way, random points with high uncertainty are chosen,
+# which prevents the active learning loop from sampling in the same region repeatedly.
+# Feel free to try out both methods in the active learning loop and see the difference!
+#
 
 
 # %%
