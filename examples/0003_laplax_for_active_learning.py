@@ -55,7 +55,17 @@ from helper import DataLoader, suppress_info_logging
 from jax import numpy as jnp
 from jax import random, vmap
 from matplotlib import pyplot as plt
-from plotting import DifferencePlot, plot_model_comparison, show_animation
+from optax.losses import softmax_cross_entropy_with_integer_labels
+from plotting import (
+    DifferencePlot,
+    plot_datapoints,
+    plot_decision_boundaries,
+    plot_model_comparison,
+    plot_next_point,
+    plot_prediction,
+    show_animation,
+    show_animation_classification,
+)
 
 from laplax.curv import create_ggn_mv, create_posterior_fn
 from laplax.eval import evaluate_for_given_prior_arguments
@@ -70,6 +80,7 @@ from laplax.eval.pushforward import (
 )
 
 seed = 2392385
+key = random.key(seed)
 
 # %% [markdown]
 # ## Problem setup
@@ -92,7 +103,7 @@ seed = 2392385
 var_widget = widgets.FloatLogSlider(
     value=0.05, base=10, min=-3, max=0, step=0.001, description="Variance"
 )
-display(var_widget)  # noqa: F821
+display(var_widget)
 
 # %%
 sample_variance = var_widget.value
@@ -131,7 +142,6 @@ x = jnp.concatenate((jnp.linspace(0.2, 2, 5), jnp.linspace(3.5, 5, 6)))[:, None]
 x = x.astype(float)
 n_initial_datapoints = x.shape[0]
 
-key = random.key(seed)
 keys = random.split(key, len(x))
 
 sample = partial(sample_target, sample_variance=sample_variance)
@@ -282,7 +292,7 @@ lib_dropdown = widgets.Dropdown(
     value="full",
     description="Curv. est.:",
 )
-display(lib_dropdown)  # noqa: F821
+display(lib_dropdown)
 
 # %%
 print(f"Curvature will be estimated using a {lib_dropdown.value} approximation.")
@@ -603,7 +613,7 @@ def active_learning_loop(
         next_target = sample_target(
             next_datapoint, key, sample_variance=sample_variance
         )
-        dataloader = dataloader.add(next_datapoint, next_target)
+        dataloader = dataloader.add(next_datapoint, jnp.atleast_2d(next_target))
 
         # 2) Continue training
         model = train_model(model, dataloader, n_epochs=epochs_per_learning_round)
@@ -678,7 +688,7 @@ sampling_dropdown = widgets.Dropdown(
     value="Random Uniform",
     description="Sampling:",
 )
-display(sampling_dropdown)  # noqa: F821
+display(sampling_dropdown)
 
 # %%
 n_passive_datapoints = n_initial_datapoints + learning_rounds
@@ -897,6 +907,7 @@ with suppress_info_logging("laplax.eval.calibrate"):
 # %%
 show_animation(plot_data, interesting_points)
 
+
 # %% [markdown]
 # Once again, the observed behaviour is unintuitive:
 # The chosen points are close to the points of interest,
@@ -906,3 +917,237 @@ show_animation(plot_data, interesting_points)
 # This concludes the tutorial for active learning using laplax.
 # As we have seen, laplax can be used to obtain posterior variance information,
 # which is used by different active learning rules we implemented.
+
+# %% [markdown]
+# # Bonus: 2D Classification Example
+
+# %% [markdown]
+# As a bonus, we show active learning using the posterior uncertainty on a
+# two-dimensional classification with three classes.
+#
+# First, we define the ground truth decision boundary function.
+
+
+# %%
+@jax.jit
+def true_function(point):
+    def f1(x):
+        return 1.9 * x**3 - 1.5 * x**2 + 0.5
+
+    def f2(x):
+        return -1.5 * x**2 + 2 * x + 0.2
+
+    x, y = point[0], point[1]
+    return jnp.where(y >= f2(x), 2, jnp.where(y >= f1(x), 1, 0))
+
+
+# %% [markdown]
+# We generate some initial datapoints and visualize them.
+
+# %%
+n_initial_datapoints = 20
+key1, key2 = random.split(key)
+xs = random.uniform(key1, shape=n_initial_datapoints, minval=0, maxval=1)
+ys = random.uniform(key2, shape=n_initial_datapoints, minval=0, maxval=1)
+points = jnp.stack((xs, ys)).mT
+labels = jax.vmap(true_function)(points)
+class_dataloader = DataLoader(points, labels, batch_size=10)
+
+plot_decision_boundaries()
+plot_datapoints(xs, ys, labels)
+plt.show()
+
+
+# %% [markdown]
+# We reuse the model from above, a small fully connected network with three layers.
+# The only differences are the 2d input, 3 output logits
+# and cross entropy loss instead of MSE.
+
+
+# %%
+@nnx.jit
+def train_step(model, optimizer, batch, labels):  # noqa: F811
+    def loss_fn(model):
+        logits = model(batch)
+        return softmax_cross_entropy_with_integer_labels(logits, labels).sum()
+
+    loss, grads = nnx.value_and_grad(loss_fn)(model)
+    optimizer.update(grads)
+    return loss
+
+
+start_model = Model(
+    in_channels=2, hidden_channels=32, out_channels=3, rngs=nnx.Rngs(seed)
+)
+
+params = nnx.state(start_model)
+total_params = sum(p.size for p in jax.tree.leaves(params))
+print(f"Total number of parameters: {total_params}")
+
+class_model = train_model(start_model, class_dataloader, n_epochs=1000)
+
+# %% [markdown]
+# We visualize the trained model's predictions as background color in the data plane.
+
+# %%
+xv, yv = jnp.meshgrid(jnp.linspace(0, 1, 100), jnp.linspace(0, 1, 100))
+points = jnp.stack([xv.ravel(), yv.ravel()], axis=-1)
+logits = jax.vmap(class_model)(points)
+preds = logits.argmax(axis=-1)
+
+plot_decision_boundaries()
+plot_datapoints(xs, ys, labels)
+plot_prediction(preds)
+
+
+# %% [markdown]
+# In this example, we use only the first rule for maximal total information gain.
+# The maximum of the total information gain is at the same location as the maximum of
+# the standard deviation, as the constants and logarithm in the formula do not change
+# the location of the maximum.
+# Therefore, it is sufficient here to calculate the posterior unertainty using laplax.
+# This is under the assumpion that the prior precision is constant.
+
+
+# %%
+def compute_uncertainty(model, dataloader):
+    trainset = {"input": dataloader.X, "target": dataloader.y}
+    model_fn, params = split(model)
+    ggn_mv = create_ggn_mv(
+        model_fn,
+        params,
+        trainset,
+        loss_fn="cross_entropy",
+    )
+    posterior_fn = create_posterior_fn(
+        curv_type=curv_type,
+        mv=ggn_mv,
+        layout=params,
+        **curv_args,
+    )
+    prob_predictive = partial(
+        set_lin_pushforward,
+        model_fn=model_fn,
+        mean_params=params,
+        posterior_fn=posterior_fn,
+        pushforward_fns=[
+            lin_setup,
+            lin_pred_mean,
+            lin_pred_std,
+        ],
+    )
+    prior_arguments = {"prior_prec": 100.0}
+    prob_predictive = prob_predictive(
+        prior_arguments=prior_arguments,
+    )
+    pred = jax.vmap(prob_predictive)(points)
+    return pred["pred_std"]
+
+
+uncertainties = compute_uncertainty(class_model, class_dataloader)
+uncertainty = uncertainties[jnp.arange(10000), preds]
+
+
+# %% [markdown]
+# We calculate the uncertainty on a regular grid within data space,
+# and find its maximum on the grid.
+# This is going to be the best next datapoint location, according to MacKay.
+# We visualize the uncertainty as the alpha-value of the prediction colors,
+# with stronger color corresponding to larger uncertainty.
+#
+
+
+# %%
+def get_next_point(uncertainty):
+    return points[jnp.argmax(uncertainty)]
+
+
+def get_next_point_sampled(key, uncertainty):
+    return points[jax.random.categorical(key, uncertainty)]
+
+
+next_point = get_next_point(uncertainty)
+
+plot_decision_boundaries()
+plot_datapoints(xs, ys, labels)
+plot_prediction(preds, uncertainty)
+plot_next_point(next_point)
+
+# %% [markdown]
+# We see that the uncertainty is large where the model thinks the
+# decision boundary lies, and low elsewhere.
+# This means the active learning loop is going to sample in these areas,
+# confirming or adapting the found decision boundary.
+
+# %%
+learning_rounds = 20
+epochs_per_learning_round = 50
+plot_data = []
+keys = jax.random.split(key, learning_rounds)
+
+for i, key in enumerate(keys):
+    print(f"Active learning round {i + 1}")
+    # 1) Sample new datapoint
+    next_target = true_function(next_point)
+    class_dataloader = class_dataloader.add(next_point, jnp.atleast_1d(next_target))
+
+    # 2) Continue training
+    class_model = train_model(
+        class_model, class_dataloader, n_epochs=epochs_per_learning_round
+    )
+    grid_preds = jnp.argmax(class_model(points), axis=-1)
+
+    # 3) Compute uncertainty
+    uncertainties = compute_uncertainty(class_model, class_dataloader)
+    uncertainty = uncertainties[jnp.arange(10000), grid_preds]
+
+    # 4) Find next datapoint location
+    next_point = get_next_point_sampled(key, uncertainty)
+
+    # Plotting
+    data_preds = jnp.argmax(class_model(class_dataloader.X), axis=-1)
+    plot_data.append((
+        grid_preds,
+        class_dataloader,
+        data_preds,
+        uncertainty,
+        next_point,
+    ))
+    print("-----------------------")
+
+# %%
+show_animation_classification(plot_data)
+
+# %% [markdown]
+# ### Comparison against passive learning
+
+# %% [markdown]
+# As in the previous task, we compare our actively trained model against one
+# that is trained as usual, with a fixed dataset.
+
+# %%
+n_passive_datapoints = n_initial_datapoints + learning_rounds
+key1, key2 = random.split(key)
+xs = random.uniform(key1, shape=n_passive_datapoints, minval=0, maxval=1)
+ys = random.uniform(key2, shape=n_passive_datapoints, minval=0, maxval=1)
+datapoints = jnp.stack((xs, ys)).mT
+labels = jax.vmap(true_function)(datapoints)
+passive_class_dl = DataLoader(datapoints, labels, batch_size=10)
+
+passive_class_model = Model(
+    in_channels=2, hidden_channels=32, out_channels=3, rngs=nnx.Rngs(seed)
+)
+passive_class_model = train_model(passive_class_model, passive_class_dl, n_epochs=1500)
+
+logits = jax.vmap(passive_class_model)(points)
+preds = logits.argmax(axis=-1)
+
+plot_decision_boundaries()
+plot_datapoints(xs, ys, labels)
+plot_prediction(preds)
+plt.show()
+
+# %% [markdown]
+# The passively trained model's prediction boundaries are not well-aligned with
+# the ground truth, simply because there are few datapoints close to the
+# ground truth boundaries, from which it could have learned them.
