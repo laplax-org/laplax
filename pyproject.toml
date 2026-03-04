@@ -4,32 +4,31 @@
 # See https://peps.python.org/pep-0621/
 
 [project]
-authors = [
-    { name = "Bálint Mucsányi", email = "b.h.mucsanyi@gmail.com" },
-    { name = "Tobias Weber", email = "t.weber@uni-tuebingen.de" },
-]
+name = "laplax"
+authors = [{ name = "Tobias Weber" }, { name = "Bálint Mucsányi" }]
+urls = { Repository = "https://github.com/laplax-org/laplax" }
+description = "Laplace approximations in JAX."
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Intended Audience :: Information Technology",
     "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Scientific/Engineering :: Mathematics",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3 :: Only",
     "Operating System :: OS Independent",
 ]
-dependencies = ["jax", "jaxtyping", "loguru", "tqdm"]
-description = "Laplace approximations in JAX."
-dynamic = ["version"]
-keywords = [
-    "laplace approximation",
-    "uncertainty quantification",
-    "Pierre Simon Marquis de Laplace",
-]
-name = "laplax"
+dependencies = ["jax", "jaxtyping", "loguru", "scipy", "scikit-learn", "tqdm"]
+version = "0.0.2"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+license = { file = "LICENSE" }
+requires-python = ">=3.11,<3.14"
 
 [project.optional-dependencies]
 dev = [
@@ -37,6 +36,7 @@ dev = [
     "jupyterlab",
     "pre-commit",
     "pytest",
+    "pytest-cov",
     "tox-uv",
     "pyright",
     "pytest-cases",
@@ -44,40 +44,49 @@ dev = [
     "equinox",
     "matplotlib",
     "torch",
-    "curvlinops-for-pytorch",
     "laplace-torch",
+    "curvlinops-for-pytorch<3",
+    "coveralls",
+    "scikit-learn",
+    "gpjax",
+    "optax",
 ]
 notebooks = [
-    "torch", 
-    "torchvision", 
-    "optax", 
-    "flax", 
-    "pandas", 
-    "skerch", 
+    "torch",
+    "torchvision",
+    "optax",
+    "flax>=0.10.6",
+    "pandas",
+    "skerch",
     "ipywidgets",
+    "ipykernel",
+    "matplotlib",
+    "wandb",
+    "tueplots",
+    "gpjax>=0.12.2",
 ]
 docs = [
+    "jupytext",
     "mkdocs",
     "mkdocs-material",
     "mkdocstrings",
     "mkdocstrings-python",
-    "mknotebooks",
+    "nbconvert",
     "pytkdocs-tweaks",
     "mkdocs-autorefs",
+    "mkdocs-gen-files",
+    "mkdocs-bibtex",
 ]
 
 # PEP 518 Build System Configuration
 # See https://peps.python.org/pep-0518/
 
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.setuptools]
-packages = ["laplax"]
-
-[tool.setuptools.dynamic]
-version = { attr = "laplax.__version__" }
+[tool.hatch.build]
+include = ["laplax/*"]
 
 # Testing Configuration
 # See https://docs.pytest.org/en/stable/reference/customize.html
@@ -93,7 +102,7 @@ addopts = ["--import-mode=importlib"]
 preview = true
 extend-include = ["*.ipynb"]
 exclude = [".git", "__pycache__"]
-target-version = "py312"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = [
@@ -106,22 +115,26 @@ select = [
     "C90", # mccabe
     "COM", # flake8-commas
     "D", # pydocstyle
+    "DOC", # pydoclint
     "DTZ", # flake8-datetimez
     "E", # pycodestyle error
     "EM", # flake8-errmsg
     "ERA", # eradicate
     "F", # Pyflakes
+    "FA", # flake8-future-annotations
     "FBT", # flake8-boolean-trap
     "FLY", # flynt
     "FURB", # refurb
     "G", # flake80logging-format
     "I", # isort
     "ICN", # flake8-import-conventions
+    "INP", # flake8-no-pep420
     "INT", # flake8-gettext
     "ISC", # flake8-implicit-str-concat
     "LOG", # flake8-logging
     "N", # pep8-naming
     "NPY", # NumPy
+    "PD", # pandas-vet
     "PERF", # Perflint
     "PGH", # pygrep-hooks
     "PIE", # flake8-pie
@@ -137,7 +150,7 @@ select = [
     "SLOT", # flake8-slots
     "T10", # flake8-debugger
     "T20", # flake8-print
-    "TCH", # flake8-type-checking
+    "TC", # flake8-type-checking
     "TD", # flake8-todos
     "TID", # flake8-tidy-imports
     "TRY", # tryceratops
@@ -231,7 +244,16 @@ ignore = [
 ]
 
 [tool.ruff.lint.extend-per-file-ignores]
-"tests/*.py" = ["S101"] # Use of assert is allowed in test files
+"tests/*.py" = [
+    "S101",  # Use of assert is allowed in test files
+    "INP001",  # The tests folder is not an implicit namespace package
+    "PLC2701",  # Private name imports are allowed in test files
+]
+"examples/*.py" = [
+    "INP001", # The examples folder is not an implicit namespace package
+    "T201", # Print statements are fine in examples
+]
+"docs/*.py" = ["INP001"] # The docs folder is not an implicit namespace package
 "*.ipynb" = ["T201"] # Print statements are fine in notebooks
 
 [tool.ruff.lint.mccabe]
@@ -239,3 +261,6 @@ max-complexity = 18
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.uv.sources]
+linox = { git = "https://github.com/lenardrommel/linox", rev = "d684ae4"}
