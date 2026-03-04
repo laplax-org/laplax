@@ -17,10 +17,12 @@ from collections.abc import Callable
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
+from jax import grad, vmap
 from loguru import logger
 
 from laplax.eval.metrics import chi_squared_zero
-from laplax.types import Array, Data, Float, PriorArguments
+from laplax.types import Array, Data, Float, Kwargs, PriorArguments
 
 
 def evaluate_for_given_prior_arguments(
@@ -28,7 +30,7 @@ def evaluate_for_given_prior_arguments(
     data: Data,
     set_prob_predictive: Callable,
     metric: Callable = chi_squared_zero,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Float:
     """Evaluate the metric for a given set of prior arguments and data.
 
@@ -89,9 +91,6 @@ def grid_search(
 
     Returns:
         The prior precision value that minimizes the objective function.
-
-    Raises:
-        ValueError: If the objective function returns invalid results.
     """
     results, prior_precs = [], []
     increasing_count = 0
@@ -144,12 +143,367 @@ def grid_search(
     return best_prior_prec
 
 
-def optimize_prior_prec(
+def adam(
+    objective: Callable[[PriorArguments], float],
+    initial_log_prior_prec: float,
+    learning_rate: float = 1e-1,
+    max_iter: int | None = 100,
+    patience: int | None = None,
+    tol: float | None = None,
+    bounds: tuple[float, float] | None = None,
+    **kwargs: Kwargs,
+) -> Float:
+    """Perform adam to optimize prior precision.
+
+    This function uses the Adam optimizer to find the optimal prior precision by
+    minimizing an objective function. The optimization is performed in log-space
+    for numerical stability. The function includes early stopping mechanisms based
+    on gradient tolerance and patience for consecutive loss increases.
+
+    Args:
+        objective: A callable objective function that takes `PriorArguments` as input
+            and returns a float result.
+        initial_log_prior_prec: The initial log prior precision (default: 0.0).
+        learning_rate: The learning rate for the Adam optimizer (default: 1e-1).
+        max_iter: The maximum number of iterations to perform (default: None).
+        patience: The number of consecutive iterations with increasing results to
+            tolerate before stopping (default: 5).
+        tol: The tolerance for the gradient norm (default: None).
+        bounds: The bounds for the prior precision (default: None).
+        **kwargs: Additional arguments passed to the optimizer.
+
+    Returns:
+        The prior precision value that minimizes the objective function.
+    """
+    clip_grad = kwargs.get("clip_grad", 1.0)
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(clip_grad), optax.adam(learning_rate)
+    )
+
+    param = jnp.array(initial_log_prior_prec)
+    opt_state = optimizer.init(param)
+
+    history = {"loss": [], "prior_prec": [], "log_prior_prec": [], "grad_norm": []}
+    value_and_grad_fn = jax.value_and_grad(objective)
+
+    best_loss = float("inf")
+    best_param = param
+    previous_loss: float | None = None
+    increasing_count = 0
+
+    for i in range(max_iter or 1000):
+        prior_prec = jnp.exp(param)
+
+        try:
+            loss, grad = value_and_grad_fn({"prior_prec": prior_prec})
+        except ValueError as error:
+            logger.warning(f"Caught an exception in validate {error}")
+            loss = jnp.inf
+            grad = {"prior_prec": jnp.array(0.0, dtype=param.dtype)}
+
+        if jnp.isnan(loss):
+            logger.info("Caught nan, setting result to inf.")
+            loss = jnp.inf
+
+        grad_prior = grad["prior_prec"]
+        grad_log_prior = grad_prior * prior_prec
+
+        if not jnp.isfinite(loss) or not jnp.isfinite(grad_log_prior):
+            logger.warning(f"NaN/Inf detected at iteration {i}, stopping early")
+            break
+
+        if loss < best_loss:
+            best_loss = float(loss)
+            best_param = param
+
+        grad_norm = float(jnp.abs(grad_log_prior))
+
+        history["loss"].append(float(loss))
+        history["prior_prec"].append(float(prior_prec))
+        history["log_prior_prec"].append(float(param))
+        history["grad_norm"].append(grad_norm)
+
+        if i % 10 == 0:
+            logger.debug(
+                f"Iter {i:3d}: loss={loss:.4e}, prior_prec={prior_prec:.4e}, "
+                f"|grad|={grad_norm:.4e}"
+            )
+
+        if tol is not None and grad_norm < tol:
+            logger.info(f"Converged at iteration {i} (|grad|={grad_norm:.4e})")
+            break
+
+        if patience is not None and previous_loss is not None:
+            if loss > previous_loss:
+                increasing_count += 1
+                logger.debug(f"Loss increased; increasing_count={increasing_count}")
+            else:
+                increasing_count = 0
+
+            if increasing_count >= patience:
+                logger.info(
+                    f"Stopping after {increasing_count} consecutive loss increases"
+                )
+                break
+
+        previous_loss = float(loss)
+
+        updates, opt_state = optimizer.update(grad_log_prior, opt_state, param)
+        param = optax.apply_updates(param, updates)
+
+        if bounds is not None:
+            param = jnp.clip(param, bounds[0], bounds[1])
+
+    best_prior_prec = float(jnp.exp(best_param))
+    return best_prior_prec
+
+
+def adam_with_restarts(
+    objective: Callable[[PriorArguments], float],
+    initial_log_prior_prec: float,
+    restarts: int,
+    **kwargs: Kwargs,
+) -> Float:
+    """Perform adam optimization with random restarts to find global optimum.
+
+    This function runs the Adam optimizer multiple times from different random
+    initial points and returns the best result across all restarts. This helps
+    avoid local minima in the optimization landscape.
+
+    Args:
+        objective: A callable objective function that takes `PriorArguments`
+            as input and returns a float result.
+        initial_log_prior_prec: The initial log prior precision for the first
+            restart.
+        restarts: Number of random restarts to perform (including the initial
+            point).
+        **kwargs: Additional arguments passed to `adam`, may include:
+            - bounds: tuple[float, float] for log space bounds
+            - learning_rate: float
+            - max_iter: int
+            - patience: int
+            - tol: float
+
+    Returns:
+        The prior precision value that minimizes the objective function across
+        all restarts.
+    """
+    bounds = kwargs.get("bounds")
+    rng = np.random.default_rng()
+
+    best_prior_prec = None
+    best_loss = float("inf")
+
+    for restart_idx in range(restarts):
+        if restart_idx == 0:
+            init_log_prior_prec = initial_log_prior_prec
+        elif bounds is not None:
+            init_log_prior_prec = float(rng.uniform(bounds[0], bounds[1]))
+        else:
+            init_log_prior_prec = float(rng.normal(initial_log_prior_prec, 2.0))
+
+        logger.info(
+            f"Restart {restart_idx + 1}/{restarts}: "
+            f"initial_log_prior_prec={init_log_prior_prec:.4f}"
+        )
+
+        prior_prec = adam(
+            objective,
+            init_log_prior_prec,
+            **kwargs,
+        )
+
+        try:
+            loss = objective({"prior_prec": prior_prec})
+        except ValueError as error:
+            logger.warning(f"Caught an exception in restart {restart_idx}: {error}")
+            loss = float("inf")
+
+        if jnp.isnan(loss):
+            loss = float("inf")
+
+        logger.info(
+            f"Restart {restart_idx + 1}/{restarts} completed: "
+            f"prior_prec={prior_prec:.4f}, loss={loss:.6f}"
+        )
+
+        if loss < best_loss:
+            best_loss = loss
+            best_prior_prec = prior_prec
+            logger.info(f"New best found at restart {restart_idx + 1}")
+
+    logger.info(
+        f"Best across {restarts} restarts: "
+        f"prior_prec={best_prior_prec:.4f}, loss={best_loss:.6f}"
+    )
+
+    return best_prior_prec
+
+
+def stein_variational_gradient_descent(
+    objective: Callable[[PriorArguments], float],
+    initial_log_prior_prec: float,
+    num_particles: int = 2,
+    learning_rate: float = 1e-2,
+    max_iter: int | None = None,
+    **kwargs: Kwargs,
+) -> Float:
+    """Perform Stein Variational Gradient Descent to optimize prior precision.
+
+    This function uses the Stein Variational Gradient Descent (SVGD)
+    https://arxiv.org/abs/1608.04471 algorithm to find the optimal prior
+    precision by minimizing an objective function. The optimization is performed
+    in log-space for numerical stability.
+
+    Args:
+        objective: A callable objective function that takes `PriorArguments`
+            as input and returns a float result.
+        initial_log_prior_prec: The initial log prior precision.
+        num_particles: The number of particles to use in SVGD (default: 10).
+        learning_rate: The learning rate for the optimizer (default: 1e-2).
+        max_iter: The maximum number of iterations to perform (default: None).
+        **kwargs: Additional arguments passed to the SVGD optimizer, may include:
+            - patience: int for early stopping
+            - tol: float for gradient tolerance
+            - bounds: tuple[float, float] for log space bounds
+            - clip_grad: float for gradient clipping
+            - bandwidth: float for kernel bandwidth (-1 for median heuristic)
+
+    Returns:
+        The prior precision value that minimizes the objective function.
+    """
+    clip_grad = kwargs.get("clip_grad", 1.0)
+    patience = kwargs.get("patience")
+    tol = kwargs.get("tol")
+    bounds = kwargs.get("bounds")
+    bandwidth = kwargs.get("bandwidth", -1.0)
+    rng = np.random.default_rng()
+
+    if bounds is not None:
+        particles = jnp.array(rng.uniform(bounds[0], bounds[1], size=(num_particles,)))
+    else:
+        particles = jnp.array(
+            rng.normal(initial_log_prior_prec, 1.0, size=(num_particles,))
+        )
+
+    # Setup optimizer (using Adagrad as in the original SVGD paper)
+    optimizer = optax.chain(
+        optax.clip_by_global_norm(clip_grad),
+        optax.adagrad(learning_rate),
+    )
+    opt_state = optimizer.init(particles)
+
+    grad_fn = jax.grad(lambda prec: objective({"prior_prec": prec}))
+
+    def rbf_kernel(x: Array, y: Array, h: float) -> Float:
+        return jnp.exp(-((x - y) ** 2) / (2 * h**2))
+
+    def compute_median_bandwidth(particles: Array) -> Float:
+        diff = particles[:, None] - particles[None, :]
+        sq_dist = diff**2
+        median_sq_dist = jnp.median(sq_dist[sq_dist > 0])
+        return jnp.sqrt(median_sq_dist / jnp.log(num_particles + 1))
+
+    def svgd_gradient(particles: Array, h: float) -> Array:
+        def safe_grad(log_prec: Float) -> Float:
+            prec = jnp.exp(log_prec)
+            grad_val = grad_fn(prec)
+            return -grad_val * prec
+
+        log_prob_grads = vmap(safe_grad)(particles)
+
+        def kernel_and_grad(x: Array) -> tuple[Array, Array]:
+            k = vmap(lambda y: rbf_kernel(x, y, h))(particles)
+            grad_k = vmap(lambda y: grad(rbf_kernel, argnums=0)(x, y, h))(particles)
+            return k, grad_k
+
+        kxy, grad_kxy = vmap(kernel_and_grad)(particles)
+
+        # SVGD update: (1/n) * sum_j [k(x_j, x_i) * grad_log_p(x_j) + grad_k(x_j, x_i)]
+        svgd_grad = (
+            jnp.matmul(kxy, log_prob_grads) + jnp.sum(grad_kxy, axis=1)
+        ) / num_particles
+
+        return svgd_grad
+
+    best_loss = float("inf")
+    best_particle = particles[0]
+    previous_mean_loss: float | None = None
+    increasing_count = 0
+
+    for iteration in range(max_iter or 1000):
+        h = compute_median_bandwidth(particles) if bandwidth <= 0 else bandwidth
+
+        prior_precs = jnp.exp(particles)
+        losses = []
+        for prec in prior_precs:
+            try:
+                loss = objective({"prior_prec": float(prec)})
+                if jnp.isnan(loss):
+                    loss = float("inf")
+            except ValueError:
+                loss = float("inf")
+            losses.append(loss)
+
+        losses = jnp.array(losses)
+        mean_loss = float(jnp.mean(losses))
+        min_loss = float(jnp.min(losses))
+
+        if min_loss < best_loss:
+            best_loss = min_loss
+            best_particle = particles[jnp.argmin(losses)]
+
+        svgd_grad = svgd_gradient(particles, h)
+        grad_norm = float(jnp.linalg.norm(svgd_grad))
+
+        if iteration % 10 == 0:
+            logger.debug(
+                f"Iter {iteration:3d}: mean_loss={mean_loss:.4e}, "
+                f"best_loss={min_loss:.4e}, |grad|={grad_norm:.4e}, h={h:.4f}"
+            )
+
+        if tol is not None and grad_norm < tol:
+            logger.info(f"Converged at iteration {iteration} (|grad|={grad_norm:.4e})")
+            break
+
+        if patience is not None and previous_mean_loss is not None:
+            if mean_loss > previous_mean_loss:
+                increasing_count += 1
+                logger.debug(
+                    f"Mean loss increased; increasing_count={increasing_count}"
+                )
+            else:
+                increasing_count = 0
+
+            if increasing_count >= patience:
+                logger.info(
+                    f"Stopping after {increasing_count} consecutive mean loss increases"
+                )
+                break
+
+        previous_mean_loss = mean_loss
+
+        updates, opt_state = optimizer.update(svgd_grad, opt_state, particles)
+        particles = optax.apply_updates(particles, updates)
+
+        if bounds is not None:
+            particles = jnp.clip(particles, bounds[0], bounds[1])
+
+    best_prior_prec = float(jnp.exp(best_particle))
+    logger.info(
+        f"SVGD completed: best_prior_prec={best_prior_prec:.4f}, "
+        f"best_loss={best_loss:.6f}"
+    )
+
+    return best_prior_prec
+
+
+def optimize_prior_prec_with_grid_search(
     objective: Callable[[PriorArguments], float],
     log_prior_prec_min: float = -5.0,
     log_prior_prec_max: float = 6.0,
     grid_size: int = 300,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Float:
     """Optimize prior precision using logarithmic grid search.
 
@@ -180,5 +534,133 @@ def optimize_prior_prec(
         objective,
         **kwargs,
     )
+
+    return prior_prec
+
+
+def optimize_prior_prec_stochastic(
+    objective: Callable[[PriorArguments], float],
+    initial_log_prior_prec: float = 0.0,
+    method: str = "adam",
+    **kwargs: Kwargs,
+) -> Float:
+    """Optimize prior precision using stochastic optimization methods.
+
+    This function provides a unified interface for stochastic optimization
+    methods including SVGD (default), Adam, and Adam with restarts.
+
+    Args:
+        objective: A callable objective function that takes `PriorArguments`
+            as input and returns a float result.
+        initial_log_prior_prec: The initial log prior precision (default: 0.0).
+        method: Optimization method to use: "svgd", "adam", or "adam_restarts"
+            (default: "svgd").
+        **kwargs: Additional arguments passed to the optimization method:
+            For SVGD:
+                - num_particles: int (default: 10)
+                - bandwidth: float (default: -1.0 for median heuristic)
+            For Adam:
+                - No special arguments
+            For Adam with restarts:
+                - restarts: int (default: 5)
+            Common arguments:
+                - learning_rate: float (default: 1e-2)
+                - max_iter: int (default: 1000)
+                - patience: int
+                - tol: float
+                - bounds: tuple[float, float]
+
+    Returns:
+        The optimized prior precision value.
+
+    Raises:
+        ValueError: If an unknown optimization method is specified.
+    """
+    if method == "svgd":
+        prior_prec = stein_variational_gradient_descent(
+            objective,
+            initial_log_prior_prec,
+            **kwargs,
+        )
+    elif method == "adam":
+        prior_prec = adam(
+            objective,
+            initial_log_prior_prec,
+            **kwargs,
+        )
+    elif method == "adam_restarts":
+        restarts = kwargs.pop("restarts", 5)
+        prior_prec = adam_with_restarts(
+            objective,
+            initial_log_prior_prec,
+            restarts,
+            **kwargs,
+        )
+    else:
+        msg = f"Unknown optimization method: {method}"
+        raise ValueError(msg)
+
+    return prior_prec
+
+
+def optimize_prior_prec(
+    objective: Callable[[PriorArguments], float],
+    log_prior_prec_min: float = -5.0,
+    log_prior_prec_max: float = 6.0,
+    grid_size: int = 300,
+    *,
+    stochastic: bool = False,
+    **kwargs: Kwargs,
+) -> Float:
+    """Optimize prior precision using grid search or stochastic optimization.
+
+    This function provides a unified interface for optimizing prior precision.
+    By default, it uses grid search. When stochastic=True, it uses SVGD
+    (Stein Variational Gradient Descent) by default, but can use Adam or
+    Adam with restarts if specified via the 'method' kwarg.
+
+    Args:
+        objective: A callable objective function that takes `PriorArguments`
+            as input and returns a float result.
+        log_prior_prec_min: The base-10 logarithm of the minimum prior
+            precision value (default: -5.0).
+        log_prior_prec_max: The base-10 logarithm of the maximum prior
+            precision value (default: 6.0).
+        grid_size: The number of points in the grid interval (default: 300).
+        stochastic: If False, use grid search; if True, use stochastic
+            optimization (default: False).
+        **kwargs: Additional arguments:
+            - For grid search: patience, max_iterations
+            - For stochastic optimization:
+                - method: "svgd" (default), "adam", or "adam_restarts"
+                - num_particles: int (for SVGD, default: 10)
+                - restarts: int (for adam_restarts, default: 5)
+                - learning_rate: float (default: 1e-2)
+                - max_iter: int (default: 1000)
+                - patience: int
+                - tol: float
+                - bounds: tuple[float, float] (optional log space bounds)
+
+    Returns:
+        The optimized prior precision value.
+    """
+    if not stochastic:
+        prior_prec = optimize_prior_prec_with_grid_search(
+            objective,
+            log_prior_prec_min,
+            log_prior_prec_max,
+            grid_size,
+            **kwargs,
+        )
+    else:
+        initial_log_prior_prec = (log_prior_prec_min + log_prior_prec_max) / 2.0
+        # Set bounds if not provided
+        if "bounds" not in kwargs:
+            kwargs["bounds"] = (log_prior_prec_min, log_prior_prec_max)
+        prior_prec = optimize_prior_prec_stochastic(
+            objective,
+            initial_log_prior_prec,
+            **kwargs,
+        )
 
     return prior_prec
