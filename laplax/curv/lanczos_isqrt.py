@@ -26,8 +26,12 @@ def lanczos_isqrt(
     def _step(values):
         ds, rs, rs_norm_sq, p, eta, k = values
         # Compute search direction
-        true_fn = lambda _p: rs[:, k] + rs_norm_sq[k] / rs_norm_sq[k - 1] * _p
-        false_fn = lambda _p: _p
+
+        def true_fn(_p):
+            return rs[:, k] + rs_norm_sq[k] / rs_norm_sq[k - 1] * _p
+
+        def false_fn(_p):
+            return _p
         p = jax.lax.cond(k > 0, true_fn, false_fn, p)
 
         # Compute modified Lanzcos vector
@@ -61,7 +65,7 @@ def lanczos_isqrt(
     # Initialization
     b /= jnp.linalg.norm(b, 2)
     ds = jnp.zeros((b.size, max_iter))  # only implemented for order='K'
-    rs = jnp.zeros((b.size, max_iter + 1))  #   only implemented for order='K'
+    rs = jnp.zeros((b.size, max_iter + 1))  # only implemented for order='K'
     rs_norm_sq = jnp.ones_like(rs, shape=max_iter + 1)
 
     # Initialize loop variables
@@ -100,32 +104,18 @@ def test_lanczos_compute_efficient():
     b = jnp.ones(n) / np.sqrt(n)  # Normalized vector
 
     # Run the Lanczos algorithm
-    ds = lanczos_compute_efficient(
-        linear_op,
-        b,
-        tol=1e-8,
-        max_iter=100
-    )
-    
-    print(f"Lanczos vectors shape: {ds.shape}")
-    
+    ds = lanczos_compute_efficient(linear_op, b, tol=1e-8, max_iter=100)
+
     # Verify orthogonality of Lanczos vectors
-    D = ds.T @ ds
-    print("Orthogonality check (should be close to identity):")
-    print(np.round(D, 5))
-    
+    ds.T @ ds
+
     # Verify the tridiagonal matrix T = D.T @ A @ D
     T = ds.T @ (A_jax @ ds)
-    print("Tridiagonal matrix T:")
-    print(np.round(T, 5))
-    
+
     # Optional: Compare with a direct eigendecomposition
-    eigvals_lanczos = np.linalg.eigvalsh(T)
-    eigvals_direct = np.linalg.eigvalsh(A_np)[:ds.shape[1]]
-    print("Eigenvalues from L anczos:")
-    print(np.sort(eigvals_lanczos))
-    print("Smallest eigenvalues from direct computation:")
-    print(np.sort(eigvals_direct)[:ds.shape[1]])
+    np.linalg.eigvalsh(T)
+    np.linalg.eigvalsh(A_np)[: ds.shape[1]]
+
 
 if __name__ == "__main__":
     test_lanczos_compute_efficient()
