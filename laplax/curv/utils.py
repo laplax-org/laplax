@@ -5,15 +5,20 @@ from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
+from jax.random import bernoulli, categorical, normal
 
 from laplax.enums import LossFn
 from laplax.types import (
     Array,
     Float,
     InputArray,
+    Int,
+    KeyType,
+    Layout,
     ModelFn,
     Num,
     Params,
+    PredArray,
     TargetArray,
 )
 from laplax.util.flatten import create_pytree_flattener, wrap_function
@@ -49,16 +54,24 @@ jax.tree_util.register_pytree_node(
 )
 
 
-def get_matvec(A, *, layout=None, jit=True):
+def get_matvec(
+    A: Callable | Array,
+    *,
+    layout: Layout | None = None,
+    jit: bool = True,
+) -> tuple[Callable[[Array], Array], int]:
     """Returns a function that computes the matrix-vector product.
 
     Args:
         A: Either a jnp.ndarray or a callable performing the operation.
-        layout: Required if A is callable; ignored if A is an array.
+        layout: Required if `A` is callable; ignored if `A` is an array.
         jit: Whether to jit-compile the operator.
 
     Returns:
         A tuple (matvec, input_dim) where matvec is the callable operator.
+
+    Raises:
+        TypeError: When `A` is a callable but `layout` is not provided.
     """
     if isinstance(A, jnp.ndarray):
         size = A.shape[0]
@@ -94,11 +107,15 @@ def get_matvec(A, *, layout=None, jit=True):
 def log_sigmoid_cross_entropy(
     logits: Num[Array, "..."], targets: Num[Array, "..."]
 ) -> Num[Array, "..."]:
-    """Computes log sigmoid cross entropy given logits and targets.
+    r"""Computes log sigmoid cross entropy given logits and targets.
 
     This function computes the cross entropy loss between the sigmoid of the logits
     and the target values. The formula implemented is:
-    -targets * log_sigmoid(logits) - (1 - targets) * log_sigmoid(-logits)
+
+    $$
+    \mathcal{L}(f(x, \theta), y) = -y \cdot \log \sigma(f(x, \theta)) -
+    (1 - y) \cdot \log \sigma(-f(x, \theta))
+    $$
 
     Args:
         logits: The predicted logits before sigmoid activation
@@ -116,31 +133,43 @@ def concatenate_model_and_loss_fn(
     model_fn: ModelFn,  # type: ignore[reportRedeclaration]
     loss_fn: LossFn | str | Callable,
     *,
-    has_batch: bool = False,
+    vmap_over_data: bool = False,
 ) -> Callable[[InputArray, TargetArray, Params], Num[Array, "..."]]:
     r"""Combine a model function and a loss function into a single callable.
 
     This creates a new function that evaluates the model and applies the specified
-    loss function. If `has_batch` is `True`, the model function is vectorized over
+    loss function. If `vmap_over_data` is `True`, the model function is vectorized over
     the batch dimension using `jax.vmap`.
 
     Mathematically, the combined function computes:
-    $L(x, y, \theta) = \text{loss}(f(x, \theta), y)$, where $f$ is the model function,
-    $\theta$ are the model parameters, $x$ is the input, and $y$ is the target.
+
+    $$
+    \mathcal{L}(x, y, \theta) = \text{loss}(f(x, \theta), y),
+    $$
+
+    where $f$ is the model function, $\theta$ are the model parameters, $x$ is the
+    input, $y$ is the target, and $\mathcal{L}$ is the loss function.
 
     Args:
         model_fn: The model function to evaluate.
         loss_fn: The loss function to apply. Supported options are:
+
             - `LossFn.MSE` for mean squared error.
+            - `LossFn.BINARY_CROSS_ENTROPY` for binary cross-entropy loss.
             - `LossFn.CROSSENTROPY` for cross-entropy loss.
+            - `LossFn.NONE` for no loss.
             - A custom callable loss function.
-        has_batch: Whether the model function should be vectorized over the batch.
+
+        vmap_over_data: Whether the model function should be vectorized over the data.
 
     Returns:
         A combined function that computes the loss for given inputs, targets, and
-        parameters.
+            parameters.
+
+    Raises:
+        ValueError: When the loss function is unknown.
     """
-    if has_batch:
+    if vmap_over_data:
         model_fn = jax.vmap(model_fn, in_axes=(0, None))
 
     if loss_fn == LossFn.MSE:
@@ -171,4 +200,46 @@ def concatenate_model_and_loss_fn(
         return loss_wrapper
 
     msg = f"unknown loss function: {loss_fn}"
+    raise ValueError(msg)
+
+
+def sample_likelihood(
+    loss_fn: LossFn | str,
+    f_ns: PredArray,
+    mc_samples: Int,
+    key: KeyType,
+) -> TargetArray:
+    r"""Sample from a loss function interpreted as negative log-likelihood.
+
+    Samples labels $\tilde{y}$ from the likelihood defined as
+    $$p(y | \text{f_ns}) = e^{-\text{loss_fn}(y, \text{f_ns})}$$
+
+    Args:
+        loss_fn: The loss function to interpret as negative log-likelihood
+        f_ns: Batch of model predictions
+        mc_samples: Number of samples to draw
+        key: Random key for sampling
+
+    Returns:
+        Array samples of shape (batch_size, mc_samples, target_dimension).
+
+    Raises:
+        ValueError: If passed 'loss_fn' is not supported.
+    """
+    *n, o = f_ns.shape
+    if loss_fn == LossFn.MSE:
+        unit_samples = normal(key, shape=(*n, mc_samples, o))
+        return unit_samples * jnp.sqrt(0.5) + f_ns[..., None, :]
+
+    if loss_fn == LossFn.CROSS_ENTROPY:
+        f_ns = jnp.expand_dims(f_ns, axis=-2)
+        return categorical(key, f_ns, shape=(*n, mc_samples), replace=True)[..., None]
+
+    if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
+        probs = jax.nn.sigmoid(f_ns)
+        probs = jnp.expand_dims(probs, axis=-2)
+        bool_samples = bernoulli(key, probs, shape=(*n, mc_samples, o))
+        return jnp.astype(bool_samples, jnp.float32)
+
+    msg = f"Unsupported LossFn {loss_fn} to sample from."
     raise ValueError(msg)

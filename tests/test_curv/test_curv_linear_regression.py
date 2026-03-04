@@ -1,5 +1,3 @@
-"""Test the GGN of linear regression."""
-
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -14,7 +12,7 @@ from laplax.util.tree import get_size
 
 
 def test_ggn_linear_regression():
-    # Set up model, data, and parameters
+    """Test the GGN of linear regression."""
     D_in, D_out = 5, 3
     N = 10
     key = jax.random.split(jax.random.key(0), 3)

@@ -2,34 +2,48 @@ import jax
 import jax.numpy as jnp
 
 from laplax.curv.utils import LowRankTerms, get_matvec
-from laplax.types import Array, Callable, DType, Float, KeyType, Layout
+from laplax.types import Array, Callable, DType, Float, KeyType, Kwargs, Layout
 from laplax.util.flatten import wrap_function
+
+
+def reorthogonalize(w: Array, V: Array, i: int) -> Array:
+    """Gram-Schmidt reorthogonalization against V[:i].
+
+    Returns:
+        Reorthogonalized vector.
+    """
+
+    def body_fn(j, w_acc):
+        coeff = jnp.dot(V[j], w_acc)
+        return w_acc - coeff * V[j]
+
+    return jax.lax.fori_loop(0, i, body_fn, w)
 
 
 def lanczos_iterations(
     matvec: Callable[[Array], Array],
-    b: jax.Array,
+    b: Array,
     *,
     maxiter: int = 20,
     tol: Float = 1e-6,
     full_reorthogonalize: bool = True,
     dtype: DType = jnp.float64,
-    mv_jittable: bool = True,
+    mv_jit: bool = True,
 ) -> tuple[Array, Array, Array]:
-    """Runs Lanczos iterations starting from vector b.
+    """Runs Lanczos iterations starting from vector `b`.
 
     Args:
-        matvec: A callable that computes A @ x.
+        matvec: A callable that computes `A @ x`.
         b: Starting vector.
         maxiter: Number of iterations.
         tol: Tolerance to detect convergence.
         full_reorthogonalize: If True, reorthogonalize at every step.
         dtype: Data type for the Lanczos scalars/vectors.
-        mv_jittable: If True, uses jax.lax.scan for iterations; if False, uses a plain
-          Python for loop. Note that jax.lax.scan can cause problems if, under the hood,
-          the matvec generates a large computational graph (which could be the case if,
-          for example, it's defined as a sum over per-datum curvatures using a
-          dataloader.) In such cases `mv_jittable` should be set to False.
+        mv_jit: If True, uses `jax.lax.scan` for iterations; if False, uses a plain
+            Python for loop. Note that `jax.lax.scan` can cause problems if, under the
+            hood, the matvec generates a large computational graph (which could be the
+            case if, for example, it's defined as a sum over per-datum curvatures using
+            a dataloader.) In such cases `mv_jit` should be set to False.
 
     Returns:
         alpha: 1D array of Lanczos scalars (diagonal of T).
@@ -44,13 +58,6 @@ def lanczos_iterations(
     beta = jnp.zeros(maxiter, dtype=dtype)
     V = jnp.zeros((maxiter + 1, b.shape[0]), dtype=dtype)
     V = V.at[0].set(v0)
-
-    def reorthogonalize(w: Array, V: Array, i: int) -> Array:
-        def body_fn(j: int, w_acc: Array) -> Array:
-            coeff = jnp.dot(V[j], w_acc)
-            return w_acc - coeff * V[j]
-
-        return jax.lax.fori_loop(0, i, body_fn, w)
 
     # Define a single iteration function to be used in both cases
     @jax.jit
@@ -80,7 +87,7 @@ def lanczos_iterations(
         v_next, alpha, beta, V = iteration_step(v, w, alpha, beta, V, i)
         return (v_next, alpha, beta, V), None
 
-    if mv_jittable:
+    if mv_jit:
         # Use lax.scan implementation (compilable)
         init_carry = (v0, alpha, beta, V)
         indices = jnp.arange(maxiter)
@@ -95,15 +102,18 @@ def lanczos_iterations(
     return alpha, beta, V
 
 
-def construct_tridiagonal(alpha: Array, beta: Array) -> Array:
-    """Constructs the symmetric tridiagonal matrix from Lanczos scalars.
+def construct_tridiagonal(
+    alpha: Array,
+    beta: Array,
+) -> Array:
+    r"""Constructs the symmetric tridiagonal matrix from Lanczos scalars.
 
     Args:
         alpha: Diagonal elements.
         beta: Off-diagonal elements (only beta[:k-1] are used).
 
     Returns:
-        A k x k symmetric tridiagonal matrix T.
+        A $k \times k$ symmetric tridiagonal matrix $T$.
     """
     k = alpha.shape[0]
     T = jnp.zeros((k, k), dtype=alpha.dtype)
@@ -127,7 +137,7 @@ def compute_eigendecomposition(
 
     Returns:
         If compute_vectors is True: (eigvals, ritz_vectors),
-        else: eigvals.
+            else: eigvals.
     """
     T = construct_tridiagonal(alpha, beta)
     if compute_vectors:
@@ -143,39 +153,46 @@ def compute_eigendecomposition(
 def lanczos_lowrank(
     A: Callable[[Array], Array] | Array,
     *,
-    key: KeyType,
+    key: KeyType | None = None,
+    b: Array | None = None,
     layout: Layout | None = None,
     rank: int = 20,
     tol: float = 1e-6,
     mv_dtype: DType | None = None,
     calc_dtype: DType = jnp.float64,
     return_dtype: DType | None = None,
-    mv_jittable: bool = True,
+    mv_jit: bool = True,
     full_reorthogonalize: bool = True,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> LowRankTerms:
     """Compute a low-rank approximation using the Lanczos algorithm.
 
     Args:
-        A: Matrix or callable representing the matrix-vector product.
-        key: PRNG key for random initialization.
-        layout: Dimension of input vector (required if A is callable).
-        rank: Number of leading eigenpairs to compute.
+        A: Matrix or callable representing the matrix-vector product `A @ x`.
+        key: PRNG key for random initialization. Either `key` or `b` must be provided.
+        b: Starting vector. Either `key` or `b` must be provided.
+        layout: Dimension of input vector (required if `A` is callable).
+        rank: Number of leading eigenpairs to compute. Defaults to $R=20$.
         tol: Convergence tolerance for the algorithm.
-        mv_dtype: Data type for matrix-vector products.
+        mv_dtype: Data type for matrix-vector products. Defaults to `float64` if
+            `jax_enable_x64` is enabled, otherwise `float32`.
         calc_dtype: Data type for internal calculations.
         return_dtype: Data type for returned results.
-        mv_jittable: If True, enables JIT compilation of matrix-vector products. Note
-          that this can cause problems if the matrix-vector product generates a large
-          computational graph.
+        mv_jit: If True, enables JIT compilation of matrix-vector products. Note
+            that this can cause problems if the matrix-vector product generates a large
+            computational graph.
         full_reorthogonalize: Whether to perform full reorthogonalization.
         **kwargs: Additional arguments (ignored).
 
     Returns:
         LowRankTerms: A dataclass containing:
-            - U: Eigenvectors as a matrix of shape (size, rank)
-            - S: Eigenvalues as an array of length rank
+
+            - U: Eigenvectors as a matrix of shape $(P, R)$
+            - S: Eigenvalues as an array of length $(R,)$
             - scalar: Scalar factor, initialized to 0.0
+
+    Raises:
+        ValueError: If neither key nor b is provided.
     """
     del kwargs
 
@@ -191,7 +208,7 @@ def lanczos_lowrank(
     jax.config.update("jax_enable_x64", calc_dtype == jnp.float64)
 
     # Obtain a uniform matrix-vector multiplication function.
-    matvec, size = get_matvec(A, layout=layout, jit=mv_jittable)
+    matvec, size = get_matvec(A, layout=layout, jit=mv_jit)
 
     # Wrap to_dtype around mv if necessary.
     if mv_dtype != calc_dtype:
@@ -201,8 +218,14 @@ def lanczos_lowrank(
             output_fn=lambda x: jnp.asarray(x, dtype=calc_dtype),
         )
 
-    # Initialize random starting vector.
-    b = jax.random.normal(key, (size,), dtype=calc_dtype)
+    # Initialize starting vector.
+    if b is not None:
+        b = jnp.asarray(b, dtype=calc_dtype)
+    elif key is not None:
+        b = jax.random.normal(key, (size,), dtype=calc_dtype)
+    else:
+        msg = "Either key or b must be provided"
+        raise ValueError(msg)
 
     # Run Lanczos iterations.
     alpha, beta, V = lanczos_iterations(
@@ -211,7 +234,8 @@ def lanczos_lowrank(
         maxiter=rank,
         tol=tol,
         full_reorthogonalize=full_reorthogonalize,
-        mv_jittable=mv_jittable,
+        dtype=calc_dtype,
+        mv_jit=mv_jit,
     )
     eigvals, eigvecs = compute_eigendecomposition(alpha, beta, V, compute_vectors=True)
 
@@ -225,3 +249,140 @@ def lanczos_lowrank(
     # Restore the original configuration dtype
     jax.config.update("jax_enable_x64", original_float64_enabled)
     return low_rank_result
+
+
+def lanczos_inverse_sqrt_factor(
+    A: Callable[[Array], Array] | Array,
+    b: Array,
+    tol: float = 1e-5,
+    max_iter: int = 500,
+    *,
+    overwrite_b: bool = False,
+) -> Array:
+    """Build a low-rank inverse factor for a PSD operator using CG/Lanczos.
+
+    Returns a skinny matrix D whose columns are A-conjugate directions
+    (normalized by sqrt of the Rayleigh quotient), such that
+        D @ D.T ≈ A^{-1}
+    on the generated Krylov subspace.
+
+    Args:
+        A: Positive semi-definite operator.
+        b: Start vector.
+        tol: Relative tolerance.
+        max_iter: Maximum number of iterations.
+        overwrite_b: If True, reuse b.
+
+    Returns:
+        Matrix D of shape (n, k).
+    """
+    matrix_mv = A if callable(A) else lambda x: A @ x
+
+    @jax.jit
+    def _step(values):
+        ds, rs, rs_norm_sq, p, eta, k = values
+        # Compute search direction
+        # p = rs[:, k] + (rs_norm_sq[k] / rs_norm_sq[k - 1]) * p
+
+        def true_fn(_p):
+            return rs[:, k] + rs_norm_sq[k] / rs_norm_sq[k - 1] * _p
+
+        def false_fn(_p):
+            return _p
+
+        p = jax.lax.cond(k > 0, true_fn, false_fn, p)
+
+        # Compute modified Lanzcos vector
+        w = matrix_mv(p)
+        eta = p @ w
+        ds = ds.at[:, k].set(p / jnp.sqrt(eta))
+
+        # Update residual
+        mu = rs_norm_sq[k] / eta
+        rs_prev_k = rs
+        rs = rs.at[:, k + 1].set(rs[:, k] - mu * w)
+
+        # Full reorthogonalization (double Gram-Schmidt)
+        coeffs = (rs_prev_k.T @ rs[:, k + 1]) / rs_norm_sq
+        # Mask future coeffs
+        mask = jnp.arange(max_iter + 1) <= k
+        coeffs = coeffs * mask
+
+        rs = rs.at[:, k + 1].set(rs[:, k + 1] - rs_prev_k @ coeffs)
+        # Double GS
+        coeffs = (rs_prev_k.T @ rs[:, k + 1]) / rs_norm_sq
+        coeffs = coeffs * mask
+        rs = rs.at[:, k + 1].set(rs[:, k + 1] - rs_prev_k @ coeffs)
+
+        rs_norm_sq = rs_norm_sq.at[k + 1].set(rs[:, k + 1].T @ rs[:, k + 1])
+
+        return ds, rs, rs_norm_sq, p, eta, k + 1
+
+    def _cond_fun(values):
+        _ds, _, rs_norm_sq, _, _eta, k = values
+        return (rs_norm_sq[k] > sqtol) & (k < max_iter)
+
+    # Initialization
+    b = jnp.asarray(b)
+    b_norm = jnp.linalg.norm(b, 2)
+    b = b / b_norm
+
+    dim = b.shape[0]
+    ds = jnp.zeros((dim, max_iter), dtype=b.dtype)
+    rs = jnp.zeros((dim, max_iter + 1), dtype=b.dtype)
+    rs_norm_sq = jnp.ones((max_iter + 1,), dtype=b.dtype)
+
+    sqtol = tol**2
+    eta = jnp.inf
+
+    rs = rs.at[:, 0].set(b)
+    rs_norm_sq = rs_norm_sq.at[0].set(b_norm**2)
+
+    p = b if overwrite_b else b.copy()
+
+    # Lanczos iterations
+    ds, _, _, _, _, k = jax.lax.while_loop(
+        _cond_fun, _step, (ds, rs, rs_norm_sq, p, eta, 0)
+    )
+
+    return ds[:, :k]
+
+
+def lanczos_truncated_eigendecomposition(
+    A: Callable[[Array], Array] | Array,
+    shape: tuple | int | None = None,
+    maxiter: int = 100,
+    seed: int = 21894,
+    dtype: DType = jnp.float32,
+) -> dict[str, Array]:
+    """Wrapper that mimics original API but uses lanczos_lowrank.
+
+    Returns:
+        Dictionary with 'U' and 'S' keys containing eigenvectors and eigenvalues.
+
+    Raises:
+        ValueError: If shape is None when A is callable.
+    """
+    if hasattr(A, "shape"):
+        layout = A.shape[-1]
+    else:
+        if shape is None:
+            msg = "Shape needed for callable A"
+            raise ValueError(msg)
+        layout = shape
+
+    key = jax.random.PRNGKey(seed)
+
+    # Re-use the main implementation
+    lr = lanczos_lowrank(
+        A,
+        key=key,
+        layout=layout,
+        rank=maxiter,
+        calc_dtype=dtype,
+        mv_dtype=dtype,
+        return_dtype=dtype,
+        full_reorthogonalize=True,
+        mv_jit=True,
+    )
+    return {"U": lr.U, "S": lr.S}
