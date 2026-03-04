@@ -143,6 +143,7 @@ def create_loss_reg(
     Callable
         Loss callable with signature ``loss_reg(context_points, params) -> scalar``.
     """
+
     def loss_reg(context_points: Mapping[str, Array] | Array, params: Params) -> Array:
         context = context_points["context"] if has_batch_dim else context_points
         f_context = model_fn(input=context, params=params)
@@ -277,6 +278,7 @@ def create_loss_reg_from_chol(
         Loss function.
 
     """
+
     def loss_reg(context_points: Mapping[str, Array] | Array, params: Params) -> Array:
         context = context_points["context"] if has_batch_dim else context_points
         f_context = model_fn(input=context, params=params)

@@ -87,7 +87,6 @@ from laplax.util.loader import (
     DataLoaderMV,
     identity,
     is_data_loader,
-    input_target_split,
     reduce_add,
     validate_data_transform,
 )
@@ -945,9 +944,7 @@ def evaluation(
 
     # Evaluate
     has_data_loader = is_data_loader(data)
-    transform = validate_data_transform(
-        next(iter(data)) if has_data_loader else data
-    )
+    transform = validate_data_transform(next(iter(data)) if has_data_loader else data)
 
     if has_data_loader:
         results = evaluate_metrics_on_generator(
