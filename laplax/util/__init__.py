@@ -1,3 +1,3 @@
-from laplax.util import mv, ops, tree
+from laplax.util import mv, objective, ops, tree
 
-__all__ = ["mv", "ops", "tree"]
+__all__ = ["mv", "objective", "ops", "tree"]
