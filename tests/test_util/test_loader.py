@@ -18,7 +18,11 @@ from laplax.util.loader import (
 
 
 def dummy_transform(x):
-    """Simple transform that returns the data as is."""
+    """Simple transform that returns the data as is.
+
+    Returns:
+        The input.
+    """
     return x
 
 
@@ -33,7 +37,11 @@ def seed():
 
 @pytest.fixture
 def sample_iterable(seed):
-    """Create sample data: list of arrays."""
+    """Create sample data: list of arrays.
+
+    Returns:
+        The list of arrays.
+    """
     shapes = [(5, 4, 2), (5, 4, 2), (5, 4, 2)]
     keys = jax.random.split(jax.random.key(seed), len(shapes))
     return list(starmap(jax.random.normal, zip(keys, shapes, strict=True)))
@@ -41,7 +49,11 @@ def sample_iterable(seed):
 
 @pytest.fixture
 def full_data(sample_iterable):
-    """Create concatenated version of the sample data."""
+    """Create concatenated version of the sample data.
+
+    Returns:
+        The concatenated data.
+    """
     return jnp.concatenate(sample_iterable, axis=0)
 
 

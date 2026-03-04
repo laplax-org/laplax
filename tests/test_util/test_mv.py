@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from laplax.util.flatten import create_pytree_flattener, wrap_function
-from laplax.util.mv import diagonal, to_dense
+from laplax.util.mv import diagonal, kernel_mv, to_dense
 from laplax.util.tree import get_size
 
 
@@ -85,3 +85,36 @@ def test_diagonal_and_to_dense_pytree_mvp(n1, n2):
     dense_computed = to_dense(mv_wrapped, get_size(layout))
     flatten, unflatten = create_pytree_flattener(layout)
     np.testing.assert_allclose(flatten(dense_computed).reshape(*A.shape), A)
+
+
+@pytest.mark.parametrize("dim", [1, 5])
+@pytest.mark.parametrize("n1", [10])
+@pytest.mark.parametrize("n2", [5])
+def test_kernel_mv(dim, n1, n2):
+    """Test kernel_mv against dense computation."""
+    key = jax.random.PRNGKey(42)
+    k1, k2, k3 = jax.random.split(key, 3)
+
+    x1 = jax.random.normal(k1, (n1, dim))
+    x2 = jax.random.normal(k2, (n2, dim))
+    v = jax.random.normal(k3, (n2, 1))
+
+    def kernel_fn(x, y):
+        d = jnp.sum((x - y) ** 2, axis=-1)
+        return jnp.exp(-0.5 * d)
+
+    # Dense computation for ground truth
+    # x1[:, None, :] shape (N1, 1, D)
+    # x2[None, :, :] shape (1, N2, D)
+    diff = x1[:, None, :] - x2[None, :, :]
+    d = jnp.sum(diff**2, axis=-1)
+    K = jnp.exp(-0.5 * d)
+
+    expected = K @ v
+
+    result = kernel_mv(kernel_fn, x1, x2, v, batch_size=2)
+
+    expected = expected.reshape(n1, 1)
+    result = result.reshape(n1, 1)
+
+    np.testing.assert_allclose(result, expected, atol=1e-5, rtol=1e-5)

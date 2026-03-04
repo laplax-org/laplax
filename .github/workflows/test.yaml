@@ -1,0 +1,27 @@
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  tests:
+    name: "Python ${{ matrix.python-version }}"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v6
+      with:
+        python-version: "${{ matrix.python-version }}"
+    - name: Install dependencies
+      run: make install-dev
+    - name: Run test
+      run: make test
+    - name: Test coveralls - python ${{ matrix.python-version }}
+      if: matrix.python-version == '3.13'
+      run: uv run coveralls --service=github
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        flag-name: run-${{ matrix.python-version }}

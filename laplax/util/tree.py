@@ -1,3 +1,5 @@
+# /laplax/util/tree.py
+
 """Relevant tree operations."""
 
 import math
@@ -8,7 +10,7 @@ from itertools import starmap
 import jax
 import jax.numpy as jnp
 
-from laplax.types import Any, Array, Callable, Float, KeyType, PyTree
+from laplax.types import Any, Array, Callable, Float, KeyType, Kwargs, PyTree
 from laplax.util.flatten import unravel_array_into_pytree
 
 # ---------------------------------------------------------------
@@ -16,7 +18,7 @@ from laplax.util.flatten import unravel_array_into_pytree
 # ---------------------------------------------------------------
 
 
-def get_size(tree: PyTree) -> PyTree:
+def get_size(tree: PyTree) -> int:
     """Compute the total number of elements in a PyTree.
 
     Args:
@@ -27,6 +29,19 @@ def get_size(tree: PyTree) -> PyTree:
     """
     flat, _ = jax.tree_util.tree_flatten(tree)
     return sum(math.prod(arr.shape) for arr in flat)
+
+
+def to_dtype(tree: PyTree, dtype: jnp.dtype) -> PyTree:
+    """Convert all elements of a PyTree to a given dtype.
+
+    Args:
+        tree: A PyTree whose elements are to be converted.
+        dtype: The dtype to convert to.
+
+    Returns:
+        A PyTree with elements converted to the given dtype.
+    """
+    return jax.tree.map(lambda x: x.astype(dtype), tree)
 
 
 # ---------------------------------------------------------------
@@ -112,7 +127,7 @@ def invert(tree: PyTree) -> PyTree:
     return jax.tree.map(jnp.invert, tree)
 
 
-def mean(tree: PyTree, **kwargs) -> PyTree:
+def mean(tree: PyTree, **kwargs: Kwargs) -> PyTree:
     """Compute the mean of each element in a PyTree.
 
     Args:
@@ -125,7 +140,20 @@ def mean(tree: PyTree, **kwargs) -> PyTree:
     return jax.tree.map(partial(jnp.mean, **kwargs), tree)
 
 
-def std(tree: PyTree, **kwargs) -> PyTree:
+def _sum(tree: PyTree, **kwargs: Kwargs) -> PyTree:
+    """Compute the sum of each element in a PyTree.
+
+    Args:
+        tree: A PyTree whose elements are to be summed.
+        **kwargs: Additional keyword arguments for `jnp.sum`.
+
+    Returns:
+        A PyTree with summed elements.
+    """
+    return jax.tree.map(partial(jnp.sum, **kwargs), tree)
+
+
+def std(tree: PyTree, **kwargs: Kwargs) -> PyTree:
     """Compute the standard deviation of each element in a PyTree.
 
     Args:
@@ -138,7 +166,7 @@ def std(tree: PyTree, **kwargs) -> PyTree:
     return jax.tree.map(partial(jnp.std, **kwargs), tree)
 
 
-def var(tree: PyTree, **kwargs) -> PyTree:
+def var(tree: PyTree, **kwargs: Kwargs) -> PyTree:
     """Compute the variance of each element in a PyTree.
 
     Args:
@@ -151,7 +179,7 @@ def var(tree: PyTree, **kwargs) -> PyTree:
     return jax.tree.map(partial(jnp.var, **kwargs), tree)
 
 
-def cov(tree: PyTree, **kwargs) -> PyTree:
+def cov(tree: PyTree, **kwargs: Kwargs) -> PyTree:
     """Compute the covariance of each element in a PyTree.
 
     Args:
@@ -377,7 +405,7 @@ def tree_vec_get(tree: PyTree, idx: int) -> Any:
         The element at the specified index.
     """
     if isinstance(tree, jnp.ndarray):
-        return tree[idx]  # Also works with arrays.
+        return tree.reshape(-1)[idx]
     # Column flat and get index
     flat, _ = jax.tree_util.tree_flatten(tree)
     flat = jnp.concatenate([f.reshape(-1) for f in flat])

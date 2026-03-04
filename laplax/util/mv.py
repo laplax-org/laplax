@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 
 from laplax import util
-from laplax.types import Array, Layout, PyTree
+from laplax.types import Array, Kwargs, Layout, PyTree
 from laplax.util.tree import (
     basis_vector_from_index,
     eye_like,
@@ -21,7 +21,7 @@ def diagonal(
     layout: Layout | None = None,
     *,
     mv_jittable: bool = True,
-    **kwargs,
+    **kwargs: Kwargs,
 ) -> Array:
     """Compute the diagonal of a matrix represented by a matrix-vector product function.
 
@@ -31,9 +31,11 @@ def diagonal(
 
     Args:
         mv: Either:
+
             - A callable that implements the MVP, or
             - A dense matrix (jax.Array) for which the diagonal is directly extracted.
         layout: Specifies the structure of the matrix:
+
             - int: The size of the matrix (for flat MVP functions).
             - PyTree: A structure to generate basis vectors matching the matrix
                 dimensions.
@@ -43,7 +45,7 @@ def diagonal(
             diagonal_batch_size: Batch size for applying the MVP function.
 
     Returns:
-        jax.Array: An array representing the diagonal of the matrix.
+        An array representing the diagonal of the matrix.
 
     Raises:
         TypeError: If `layout` is not provided when `mv` is a callable.
@@ -83,7 +85,7 @@ def diagonal(
 
 
 @singledispatch
-def to_dense(mv: Callable, layout: Layout, **kwargs) -> Array:
+def to_dense(mv: Callable, layout: Layout, **kwargs: Kwargs) -> Array:
     """Generate a dense matrix representation from a matrix-vector product function.
 
     Converts a matrix-vector product function into its equivalent dense matrix form
@@ -92,14 +94,16 @@ def to_dense(mv: Callable, layout: Layout, **kwargs) -> Array:
     Args:
         mv: A callable implementing the matrix-vector product function.
         layout: Specifies the structure of the input:
+
             - int: The size of the input dimension (flat vectors).
             - PyTree: The structure for input to the MVP.
             - None: Defaults to an identity-like structure.
         **kwargs: Additional options:
+
             - `to_dense_batch_size`: Batch size for applying the MVP function.
 
     Returns:
-        jax.Array: A dense matrix representation of the MVP function.
+        A dense matrix representation of the MVP function.
 
     Raises:
         TypeError: If `layout` is neither an integer nor a PyTree structure.
@@ -117,3 +121,34 @@ def to_dense(mv: Callable, layout: Layout, **kwargs) -> Array:
         jnp.transpose,
         jax.lax.map(mv, identity, batch_size=kwargs.get("to_dense_batch_size")),
     )  # jax.lax.map shares along the first axis (rows instead of columns).
+
+
+def kernel_mv(
+    kernel_fn: Callable[[Array, Array], Array],
+    x1: Array,
+    x2: Array,
+    v: Array,
+    *,
+    batch_size: int = 64,
+) -> Array:
+    """Compute kernel matrix-vector product K(x1, x2) @ v memory-efficiently.
+
+    Args:
+        kernel_fn: Kernel function k(x, y) -> scalar/matrix.
+        x1: First set of inputs (N1, D).
+        x2: Second set of inputs (N2, D).
+        v: Vector to multiply (N2, Out).
+        batch_size: Batch size for row-wise computation.
+
+    Returns:
+        Result of matrix-vector product (N1, Out).
+    """
+
+    def row_fn(x_i):
+        # x_i: (D,)
+        # k_row: (N2,)
+        k_row = kernel_fn(x_i[None], x2).reshape(-1)
+        return jnp.dot(k_row, v)
+
+    # Compute K @ v using map to avoid storing full K
+    return jax.lax.map(row_fn, x1, batch_size=batch_size)

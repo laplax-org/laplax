@@ -13,3 +13,15 @@ def identity(x: Any) -> Any:
         The input itself.
     """
     return x
+
+
+def input_target_split(batch: Any) -> tuple[Any, Any]:
+    """Split batch into input and target.
+
+    Args:
+        batch: A tuple or list containing (input, target).
+
+    Returns:
+        Tuple of (input, target).
+    """
+    return batch[0], batch[1]

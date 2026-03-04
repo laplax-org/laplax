@@ -1,3 +1,6 @@
+from loguru import logger
+
+from laplax.api import calibration_options
 from laplax.curv.cov import (
     CURVATURE_METHODS,
     CURVATURE_PRECISION_METHODS,
@@ -15,6 +18,29 @@ from laplax.types import (
     Layout,
     PosteriorState,
 )
+
+# ----------------------------------------------------------------------------------
+# Register new calibration methods
+# ----------------------------------------------------------------------------------
+
+
+def register_calibration_method(
+    method_name: str,
+    method_fn: Callable,
+) -> None:
+    """Register a new calibration method.
+
+    Args:
+        method_name: Name of the calibration method.
+        method_fn: Function implementing the calibration method.
+
+    Notes:
+        The method function should have signature
+        `method_fn(objective: Callable, **kwargs) -> float`
+    """
+    calibration_options[method_name] = method_fn
+    logger.info(f"Registered new calibration method: {method_name}")
+
 
 # ----------------------------------------------------------------------------------
 # Register new curvature methods

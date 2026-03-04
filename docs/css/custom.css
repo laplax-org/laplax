@@ -1,17 +1,17 @@
 /* Style for namespace/module path */
-.doc-heading .n {
+h3 code .n {
     color: #888;
     font-weight: normal;
 }
 
 /* Style for dots in the path */
-.doc-heading .o {
+h3 code .o {
     color: #888;
     font-weight: normal;
 }
 
 /* Style for the function name (last segment) */
-.doc-heading .n:last-of-type {
+h3 code .n:last-of-type {
     color: #000;
     font-weight: bold;
 }

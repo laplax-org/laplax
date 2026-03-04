@@ -1,3 +1,5 @@
+# /examples/plotting.py
+
 """Plotting utilities."""
 
 from pathlib import Path
@@ -6,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from tueplots import bundles
 
 
 def plot_regression_with_uncertainty(
@@ -17,6 +20,7 @@ def plot_regression_with_uncertainty(
     y_pred=None,
     y_std=None,
     title=None,
+    sinus_factor=2 * jnp.pi,
 ):
     """Plot regression data with optional prediction and uncertainty.
 
@@ -29,6 +33,10 @@ def plot_regression_with_uncertainty(
         y_pred: Prediction mean (shape: n_samples, 1), optional
         y_std: Prediction standard deviation (shape: n_samples, 1), optional
         title: Plot title, optional
+        sinus_factor: Multiplicative factor inside the ground-truth sine function.
+
+    Returns:
+        The figure.
     """
     plt.figure(figsize=(10, 6))
 
@@ -44,6 +52,16 @@ def plot_regression_with_uncertainty(
             y_pred = np.array(y_pred)
             if y_std is not None:
                 y_std = np.array(y_std)
+
+    X_train_min = X_train.min()
+    X_train_max = X_train.max()
+
+    if X_test is not None:
+        X_test_min = X_test.min()
+        X_test_max = X_test.max()
+    else:
+        X_test_min = X_train_min
+        X_test_max = X_train_max
 
     # Plot training data
     plt.scatter(X_train, y_train, color="blue", alpha=0.6, label="Training data")
@@ -79,8 +97,10 @@ def plot_regression_with_uncertainty(
                 )
 
     # Plot true function
-    x_true = np.linspace(0, 8, 1000).reshape(-1, 1)
-    y_true = np.sin(x_true)
+    min_point = min(X_train_min, X_test_min)
+    max_point = max(X_train_max, X_test_max)
+    x_true = np.linspace(min_point, max_point, 1000).reshape(-1, 1)
+    y_true = np.sin(x_true * sinus_factor)
     plt.plot(x_true, y_true, color="black", linestyle="--", label="True function")
 
     # Add labels and title
@@ -93,6 +113,7 @@ def plot_regression_with_uncertainty(
 
     plt.legend()
     plt.grid(True, alpha=0.3)
+    plt.ylim(-4, 4)
 
     return plt.gcf()
 
@@ -109,6 +130,9 @@ def plot_posterior_samples(
         X_train: Training input data (shape: n_train_samples, 1)
         y_train: Training target data (shape: n_train_samples, 1)
         title: Plot title
+
+    Returns:
+        The figure.
     """
     plt.figure(figsize=(10, 6))
 
@@ -158,6 +182,9 @@ def plot_predictive_distribution(
         y_pred_mean: Predictive mean (shape: n_pred_samples, 1)
         y_pred_std: Predictive standard deviation (shape: n_pred_samples, 1)
         title: Plot title
+
+    Returns:
+        The figure.
     """
     # Convert to numpy arrays if they are JAX arrays
     if hasattr(X_train, "device_buffer"):
@@ -276,6 +303,8 @@ def create_reliability_diagram(
     else:
         plt.show()
 
+    return plt.gcf()
+
 
 def create_proportion_diagram(
     bin_proportions: jax.Array,
@@ -315,6 +344,8 @@ def create_proportion_diagram(
     else:
         plt.show()
 
+    return plt.gcf()
+
 
 def plot_sinusoid_task(
     X_train,
@@ -325,6 +356,7 @@ def plot_sinusoid_task(
     y_pred=None,
     y_std=None,
     title=None,
+    sinus_factor=1.0,
 ):
     """Plot the training and test data for the sinusoid task with optional predictions.
 
@@ -337,6 +369,7 @@ def plot_sinusoid_task(
         y_pred: Prediction mean (shape: n_samples, 1), optional
         y_std: Prediction standard deviation (shape: n_samples, 1), optional
         title: Plot title, optional
+        sinus_factor: Multiplicative factor inside the ground-truth sine function.
 
     Returns:
         The matplotlib figure object
@@ -386,7 +419,7 @@ def plot_sinusoid_task(
 
     # Plot true function
     x_true = np.linspace(0, 8, 1000).reshape(-1, 1)
-    y_true = np.sin(x_true)
+    y_true = np.sin(x_true * sinus_factor)
     plt.plot(x_true, y_true, color="black", linestyle="--", label="True function")
 
     # Add labels and title
@@ -404,6 +437,77 @@ def plot_sinusoid_task(
     return plt.gcf()
 
 
+def plot_two_moons_fsp(
+    X_np,
+    y_np,
+    XX,
+    YY,
+    prob_grid,
+    entropy_grid,
+    *,
+    x_bounds,
+    y_bounds,
+    title_prob="FSP-Laplace probability",
+    title_entropy="FSP-Laplace predictive entropy",
+):
+    """Plot two-moons FSP results: probability and entropy.
+
+    Args:
+        X_np: Two-moons inputs as NumPy array.
+        y_np: Binary labels as NumPy array.
+        XX: Meshgrid X values.
+        YY: Meshgrid Y values.
+        prob_grid: Probability grid for class 1.
+        entropy_grid: Predictive entropy grid.
+        x_bounds: Tuple (xmin, xmax).
+        y_bounds: Tuple (ymin, ymax).
+        title_prob: Title for probability panel.
+        title_entropy: Title for entropy panel.
+
+    Returns:
+        The figure.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    def scatter_data(ax):
+        ax.scatter(
+            X_np[y_np == 0, 0], X_np[y_np == 0, 1], s=18, alpha=0.9, label="class 0"
+        )
+        ax.scatter(
+            X_np[y_np == 1, 0], X_np[y_np == 1, 1], s=18, alpha=0.9, label="class 1"
+        )
+        ax.set_xlim(*x_bounds)
+        ax.set_ylim(*y_bounds)
+        ax.set_aspect("equal", "box")
+        ax.grid(True, alpha=0.25)
+
+    im0 = axes[0].imshow(
+        prob_grid,
+        origin="lower",
+        extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]],
+        aspect="auto",
+    )
+    axes[0].contour(XX, YY, prob_grid, levels=[0.5], linewidths=2.0)
+    axes[0].set_title(title_prob)
+    scatter_data(axes[0])
+    fig.colorbar(im0, ax=axes[0], fraction=0.046)
+
+    im1 = axes[1].imshow(
+        entropy_grid,
+        origin="lower",
+        extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]],
+        aspect="auto",
+    )
+    axes[1].contour(XX, YY, prob_grid, levels=[0.5], linewidths=2.0)
+    axes[1].set_title(title_entropy)
+    scatter_data(axes[1])
+    fig.colorbar(im1, ax=axes[1], fraction=0.046)
+
+    axes[0].legend(loc="upper right")
+    plt.tight_layout()
+    return fig
+
+
 def print_results(results_dict, title=None):
     """Print a dictionary of results in a nicely formatted way.
 
@@ -412,8 +516,8 @@ def print_results(results_dict, title=None):
         title: Optional title to display before results
     """
     if title:
-        print(f"\n{title}")  # noqa: T201
-        print("-" * 40)  # noqa: T201
+        print(f"\n{title}")
+        print("-" * 40)
 
     # Find the longest key for alignment
     max_key_length = max(len(str(key)) for key in results_dict)
@@ -421,9 +525,104 @@ def print_results(results_dict, title=None):
     # Print each key-value pair with aligned formatting
     for key, value in results_dict.items():
         if isinstance(value, (float, np.floating, jnp.floating)):
-            print(f"{key!s:<{max_key_length}} : {value:.6f}")  # noqa: T201
+            print(f"{key!s:<{max_key_length}} : {value:.6f}")
         else:
             try:
-                print(f"{key!s:<{max_key_length}} : {value.item():.6f}")  # noqa: T201
+                print(f"{key!s:<{max_key_length}} : {value.item():.6f}")
             except Exception as _:  # noqa: BLE001
-                print(f"{key!s:<{max_key_length}} : {value}")  # noqa: T201
+                print(f"{key!s:<{max_key_length}} : {value}")
+
+
+def plot_figure_1(params, curv, *, save_fig=True):
+    """Plot the loss landscape and Laplace approximation ellipses.
+
+    Args:
+        params: Dictionary of model parameters
+        curv: Scale matrix from the posterior (R_laplax)
+        save_fig: Whether to save the figure (default: True)
+
+    Returns:
+        fig: The matplotlib figure object
+        ax: The matplotlib axes object
+    """
+    # Select a style bundle
+    style = bundles.icml2024(usetex=True)
+
+    # Apply the style to matplotlib
+    plt.rcParams.update(style)
+
+    # Get the optimal parameters
+    w1_opt_laplax = params["theta1"]
+    w2_opt_laplax = params["theta2"]
+
+    # Create parameter grid for visualization
+    W1, W2 = jnp.meshgrid(jnp.linspace(-3, 3, 1000), jnp.linspace(-3, 3, 1000))
+
+    # Compute loss landscape
+    b = -1
+    eps = 0.2
+    x1, y1 = 1, 1
+    x2, y2 = -1, -1
+
+    f1 = jax.nn.relu(W1.ravel() * x1 + b) * W2.ravel()
+    f2 = jax.nn.relu(W1.ravel() * x2 + b) * W2.ravel()
+
+    loss = 0.5 * ((f1 - y1) ** 2 + (f2 - y2) ** 2).reshape(W1.shape) + 0.5 * eps * (
+        W1**2 + W2**2
+    )
+
+    # Create figure
+    fig, ax = plt.subplots()
+
+    # Plot contours of the loss landscape
+    levels = [0.95, 1.0, 1.1, 1.2, 1.5, 2, 3, 5, 7, 10, 20]
+    CS = plt.contour(
+        W1, W2, loss, levels=levels, colors="k", alpha=0.5
+    )  # , fontsize=3)  # Added smaller fontsize
+
+    # Add contour labels
+    def fmt(x):
+        s = f"{x:.1f}"
+        if s.endswith("0"):
+            s = f"{x:.0f}"
+        return f"{s}"
+
+    ax.clabel(CS, CS.levels, fmt=fmt, fontsize=6)
+
+    # Plot the optimal point
+    ax.plot(w1_opt_laplax, w2_opt_laplax, "ko")  # , label="Optimal Parameters")
+
+    # Plot the ellipse representing the curvature
+    ellipse = jnp.linspace(-jnp.pi, jnp.pi, 100)
+    x = jnp.cos(ellipse)
+    y = jnp.sin(ellipse)
+    xy = jnp.vstack((x, y))
+    xy = curv @ xy
+
+    # Plot 1-sigma and 2-sigma ellipses
+    ax.plot(
+        w1_opt_laplax + xy[0, :],
+        w2_opt_laplax + xy[1, :],
+        linestyle="solid",
+        color="#00695b",
+        lw=2,
+    )  # , label="1-sigma (LapLaX)")
+    ax.plot(
+        w1_opt_laplax + 2 * xy[0, :],
+        w2_opt_laplax + 2 * xy[1, :],
+        linestyle="--",
+        color="#00695b",
+        lw=2,
+    )  # , label="2-sigma (LapLaX)")
+
+    # Set labels and limits
+    ax.set_xlabel(r"$\theta_1$")
+    ax.set_ylabel(r"$\theta_2$")
+    ax.set_xlim(-3, 3)
+    ax.set_ylim(-3, 3)
+    ax.legend()
+
+    if save_fig:
+        plt.savefig("laplax_figure_1.png", bbox_inches="tight", dpi=600)
+
+    return fig, ax

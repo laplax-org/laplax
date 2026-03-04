@@ -2,87 +2,125 @@ site_name: "laplax"
 site_url: "https://laplax-org.github.io/laplax/"
 repo_url: "https://github.com/laplax-org/laplax"
 repo_name: "laplax-org/laplax"
-strict: false
+# strict: false
 
 theme:
   name: "material"
+  logo: "images/laplax_logo_white.svg"
+  icon:
+    repo: fontawesome/brands/github # Github logo
+  font:
+    text: Fira Sans
   features:
-    - navigation.sections # Section are shown in the sidebar
-    - toc.integrate # Show table of contents on the left
+    - navigation.sections
+    - navigation.top
+    # - toc.integrate # Show table of contents on the left
     - header.autohide # Hide the header when scrolling down
   palette:
     scheme: default
     primary: teal
     accent: cyan
     toggle:
-      icon: material/weather-sunny
+      icon: material/eye
       name: Switch to dark mode
-  icon:
-    repo: fontawesome/brands/github # Github logo
-    logo: "material/circle-opacity"
 
-extra_javascript:
-    # The below two make MathJax work, see https://squidfunk.github.io/mkdocs-material/reference/mathjax/
-    - _static/mathjax.js
-    - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 
-markdown_extensions:
-    - pymdownx.arithmatex:  # Render LaTeX via MathJax
-        generic: true
-    - pymdownx.superfences  # Seems to enable syntax highlighting when used with the Material theme.
-    - pymdownx.details  # Allowing hidden expandable regions denoted by ???
 
 nav:
   - Home: index.md
+  - Background: background.md
   - Design Philosophy: design_philosophy.md
   - Examples:
-    - Laplax for regression: examples/0001_laplax_for_regression.ipynb
-    - Laplace on MNIST: examples/0002_laplax_on_mnist.ipynb
-  - API reference:
-    - laplax.curv:
-      - General: api/curv.md
-      - Curvature: api/curv.curv.md
-      - Approximations: api/curv.curv_approx.md
-    - laplax.eval:
-      - General: api/eval.md
-      - Metrics: api/eval.metrics.md
-      - Pushforward: api/eval.pushforward.md
-      - Calibrate: api/eval.calibrate.md
-    - laplax.util:
-      - General: api/util.md
-      - Flatten: api/util.flatten.md
-      - Ops: api/util.ops.md
-      - Tree: api/util.tree.md
-      - MV: api/util.mv.md
-      - Loader: api/util.loader.md
+    - Tiny example: _examples/0000_tiny_laplax.md
+    - Laplax for regression: _examples/0001_laplax_for_regression.md
+    - Laplax on MNIST: _examples/0002_laplax_on_mnist.md
+  - API Reference:
+    - Overview: api.md
+    - Modules:
+      - laplax.api: reference/main_api.md
+      - laplax.curv:
+        - Overview: reference/curv.md
+        - laplax.curv.ggn: reference/curv/ggn.md
+        - laplax.curv.hessian: reference/curv/hessian.md
+        - laplax.curv.full: reference/curv/full.md
+        - laplax.curv.diagonal: reference/curv/diagonal.md
+        - laplax.curv.low_rank: reference/curv/low_rank.md
+        - laplax.curv.lanczos: reference/curv/lanczos.md
+        - laplax.curv.lobpcg: reference/curv/lobpcg.md
+        - laplax.curv.cov: reference/curv/cov.md
+        - laplax.curv.utils: reference/curv/utils.md
+      - laplax.eval:
+        - Overview: reference/eval.md
+        - "laplax.eval.pushforward": reference/eval/pushforward.md
+        - laplax.eval.predictives: reference/eval/predictives.md
+        - laplax.eval.likelihood: reference/eval/likelihood.md
+        - laplax.eval.calibrate: reference/eval/calibrate.md
+        - laplax.eval.metrics: reference/eval/metrics.md
+        - laplax.eval.utils: reference/eval/utils.md
+      - laplax.util:
+        - Overview: reference/util.md
+        - laplax.util.flatten: reference/util/flatten.md
+        - laplax.util.loader: reference/util/loader.md
+        - laplax.util.mv: reference/util/mv.md
+        - laplax.util.ops: reference/util/ops.md
+        - laplax.util.tree: reference/util/tree.md
+        - laplax.util.utils: reference/util/utils.md
+      - Additional:
+        - laplax.enums: reference/enums.md
+        - laplax.register: reference/register.md
+
 plugins:
   - search
   - autorefs
+  - bibtex:
+      bib_file: docs/references.bib
+      csl_file: "https://raw.githubusercontent.com/citation-style-language/styles/master/ieee.csl"
   - mkdocstrings:
       handlers:
         python:
-          setup_commands:
-            - import pytkdocs_tweaks
-            - pytkdocs_tweaks.main()
           options:
-            show_root_heading: true
-            #show_source: true
+            show_root_heading: false
+            show_source: true
             members_order: source
-            show_signature: true # Whether to show the full function signature
-            separate_signature: true # Is not working; should separate function and signature to extra line.
+            show_signature: true
+            separate_signature: true
             show_signature_annotations: true
             signature_crossrefs: true
-            heading_style: "atx"
             docstring_style: "google"
-            signature_style: "css"
-            css_dir: "docs/css"
-            heading_level: 4
+            extra:
+              heading_level: 3
+              filters: ["!^_"]
+              docstring_section_style: "list"
+  - gen-files:
+      scripts:
+        - docs/convert_examples.py
+        - docs/gen_api.py
 
+markdown_extensions:
+  - def_list
+  - footnotes
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.tabbed:
+      alternate_style: true
+      # slugify: !!python/object/apply:pymdownx.slugs.slugify
+      #   kwds:
+      #     case: lower
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.keys
+  - pymdownx.details
 
-  - mknotebooks:
-      execute: false
-      write_markdown: true
-      enable_default_jupyter_cell_styling: true
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 
 extra_css:
+  - css/hide-site-name.css
   - css/custom.css

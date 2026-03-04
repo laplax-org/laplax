@@ -1,3 +1,32 @@
+# Experiments (ICML Workshop)
+logs/*
+checkpoints/*
+results/*
+wandb/*
+data/*
+laplax/rest/*
+
+
+# root artifacts
+package-lock.json
+rest/
+
+
+
+# Local files
+.local/
+# DS Store files
+.DS_Store
+# pycache files
+__pycache__/
+# Temporary files (documentation)
+*.tmp
+*.png
+
+
+# Pytest
+.pytest_cache/
+
 # Development
 local_*
 .ruff_cache
@@ -9,9 +38,11 @@ local_*
 *.txt
 *.egg-info
 *.pyc
+*.bak
 
 # Example notebooks
 *examples/data/*
+!examples/0000_tiny_laplax.ipynb
 !examples/0001_laplax_for_regression.ipynb
 !examples/0002_laplax_on_mnist.ipynb
 
@@ -134,6 +165,8 @@ ipython_config.py
 .pdm.toml
 .pdm-python
 .pdm-build/
+
+FSPLaplace
 
 # PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
 __pypackages__/
