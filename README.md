@@ -1,11 +1,20 @@
 <p align="center">
-  <img src="./images/laplax_logo.svg" width="541" height= "auto" alt="Laplax Logo"/>
+  <img src="./docs/images/laplax_logo.svg" width="541" height= "auto" alt="Laplax Logo"/>
 </p>
 
-# Laplax
+---
+[![Python
+3.11+](https://img.shields.io/badge/python-3.11+-green.svg)](https://www.python.org/downloads/release/python-3110/)
+[![Test](https://github.com/laplax-org/laplax/actions/workflows/test.yaml/badge.svg)](https://github.com/laplax-org/laplax/actions/workflows/test.yaml) [![Docs](https://github.com/laplax-org/laplax/actions/workflows/docs.yaml/badge.svg)](https://github.com/laplax-org/laplax/actions/workflows/docs.yaml) [![Coverage Status](https://coveralls.io/repos/github/laplax-org/laplax/badge.svg?branch=laplax_api)](https://coveralls.io/github/laplax-org/laplax?branch=laplax_api)
 
 ## What is `laplax`?
 The `laplax` package aims to provide a performant, minimal, and practical implementation of Laplace approximation techniques in [`jax`](https://github.com/google/jax). This package is designed to support a wide range of scientific libraries, initially focusing on compatibility with popular neural network libraries such as [`equinox`](https://github.com/patrick-kidger/equinox), [`flax.linen`](https://github.com/google/flax/tree/main/flax/linen), and [`flax.nnx`](https://github.com/google/flax/tree/main/flax/nnx). Our goal is to create a flexible tool for both practical applications and research, enabling rapid iteration and comparison of new approaches.
+
+## Installation
+Use `pip install laplax`.
+
+## Documentation
+Available at [https://laplax-org.github.io/laplax/](https://laplax-org.github.io/laplax/).
 
 ## Design Philosophy
 The development of `laplax` is guided by the following principles:
