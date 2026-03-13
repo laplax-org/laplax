@@ -740,7 +740,7 @@ def show_animation(plot_data, interesting_points=None, no_sampling_zone=None):
     return HTML(animation.to_jshtml())
 
 
-# Bonus: Classification
+# Active classification learning example
 def plot_decision_boundaries(ax=None):
     def f1(x):
         return 1.9 * x**3 - 1.5 * x**2 + 0.5
@@ -772,7 +772,7 @@ def plot_prediction(labels, uncertainty=None, ax=None):
     labels = labels.reshape((100, 100))
     if uncertainty is not None:
         uncertainty = np.asarray(uncertainty)
-        norm = SymLogNorm(uncertainty.min(), uncertainty.max())
+        norm = SymLogNorm(0.001, vmin=uncertainty.min(), vmax=uncertainty.max())
         alpha = (norm(uncertainty) + 0.0001) * 0.999
         alpha = alpha.reshape((100, 100))
     else:
