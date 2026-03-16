@@ -798,10 +798,10 @@ def show_animation_classification(plot_data):
 
     def update(frame):
         ax.clear()
-        grid_preds, dl, data_preds, uncertainty, next_point = plot_data[frame]
+        grid_preds, dl, uncertainty, next_point = plot_data[frame]
 
         plot_prediction(grid_preds, uncertainty, ax)
-        plot_datapoints(dl.X[:, 0], dl.X[:, 1], data_preds, ax)
+        plot_datapoints(dl.X[:, 0], dl.X[:, 1], dl.y, ax)
         plot_decision_boundaries(ax)
         plot_next_point(next_point, ax)
 
