@@ -758,8 +758,11 @@ def plot_decision_boundaries(ax=None):
     ax.legend(loc="lower right")
 
 
-def plot_datapoints(xs, ys, labels, ax=None):
+def plot_datapoints(dataloader, ax=None):
     ax = ax if ax is not None else plt.gca()
+    xs = dataloader.X[:, 0]
+    ys = dataloader.X[:, 1]
+    labels = dataloader.y
     ax.scatter(xs, ys, c=labels, edgecolor="black")
     ax.scatter(-1, -1, c="white", edgecolor="black", label="Datapoints")
     ax.set_xlim(0, 1)
@@ -801,7 +804,7 @@ def show_animation_classification(plot_data):
         grid_preds, dl, uncertainty, next_point = plot_data[frame]
 
         plot_prediction(grid_preds, uncertainty, ax)
-        plot_datapoints(dl.X[:, 0], dl.X[:, 1], dl.y, ax)
+        plot_datapoints(dl, ax)
         plot_decision_boundaries(ax)
         plot_next_point(next_point, ax)
 
@@ -809,6 +812,6 @@ def show_animation_classification(plot_data):
         fig, update, frames=len(plot_data), interval=1500, repeat_delay=2000
     )
     plt.close(fig)  # Prevent duplicate figure
-    # with open("animation.html", "w") as f:
+    # with open("animation.html", "w") as f: # save animation
     #    f.write(animation.to_jshtml())
     return HTML(animation.to_jshtml())
