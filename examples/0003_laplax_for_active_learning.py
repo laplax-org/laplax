@@ -16,22 +16,22 @@
 # # Active Learning using Laplax
 
 # %% [markdown]
-# In this example notebook, we demonstrate how laplax can be used to learn
-# a deep neural network actively.
+# In this example notebook, we demonstrate how laplax can be used for
+# active learning with a deep neural network.
 # It is based on the article
 # *Information-Based Objective Functions for Active Data Selection* by David MacKay.
 #
 # Active learning means to pick the datapoints used for training iteratively
 # and in a smart manner,
-# maximizing the information they give the network.
+# maximizing the information they give about the network parameters.
 # We start by implementing the four core mechanics necessary to do active learning:
 # 1) Sample a target given an x-value from the true function
 # 2) Train the model using a given dataset of points
-# 3) Compue the posterior covariance of the model
+# 3) Compute the posterior covariance of the model
 # 4) Find the most informative datapoint using a heuristic based on
 # the posterior covariance
 #
-# Part 1) and 2) are identical to what you would do in passive learning, i.e. normally
+# Part 1) and 2) are identical to what you would do in passive learning, i.e. normally.
 # Part 3) is where we are going to use laplax.
 # For part 4), we are going to showcase the different heuristics introduced by MacKay.
 #
@@ -51,21 +51,17 @@ import ipywidgets as widgets
 import jax
 import optax
 from flax import nnx
-from helper import DataLoader, suppress_info_logging
+from helper import DataLoader, Model, split, suppress_info_logging, train_model
+from IPython.display import display
 from jax import numpy as jnp
 from jax import random, vmap
 from matplotlib import pyplot as plt
-from optax.losses import softmax_cross_entropy_with_integer_labels
 from plotting import (
     DifferencePlot,
-    plot_datapoints,
-    plot_decision_boundaries,
     plot_model_comparison,
-    plot_next_point,
-    plot_prediction,
     show_animation,
-    show_animation_classification,
 )
+from tqdm import tqdm
 
 from laplax.curv import create_ggn_mv, create_posterior_fn
 from laplax.eval import evaluate_for_given_prior_arguments
@@ -103,14 +99,14 @@ key = random.key(seed)
 var_widget = widgets.FloatLogSlider(
     value=0.05, base=10, min=-3, max=0, step=0.001, description="Variance"
 )
-display(var_widget)  # noqa: F821
+display(var_widget)
 
 # %%
 sample_variance = var_widget.value
 print("Sample variance: ", sample_variance)
 
 
-def sample_target(x, key, sample_variance=0.0005):
+def sample_target(x, key, sample_variance=0.05):
     """Sample a target (label) for a given datapoint x.
 
     Args:
@@ -139,7 +135,6 @@ def true_function(xs):
 
 # Initial dataset
 x = jnp.concatenate((jnp.linspace(0.2, 2, 5), jnp.linspace(3.5, 5, 6)))[:, None]
-x = x.astype(float)
 n_initial_datapoints = x.shape[0]
 
 keys = random.split(key, len(x))
@@ -157,30 +152,16 @@ start_dataloader = DataLoader(x, y, batch_size=10)
 # ## Model definition
 
 # %% [markdown]
-# Next, we define our deep neural network and its training loop.
+# Next, we define our deep neural network.
 # Here, we use a network of 4 fully connected layers with a hidden dimension of 32.
 
 
 # %%
-class Model(nnx.Module):
-    def __init__(self, in_channels, hidden_channels, out_channels, rngs):
-        self.linear1 = nnx.Linear(in_channels, hidden_channels, rngs=rngs)
-        self.linear2 = nnx.Linear(hidden_channels, hidden_channels, rngs=rngs)
-        self.linear3 = nnx.Linear(hidden_channels, hidden_channels, rngs=rngs)
-        self.linear4 = nnx.Linear(hidden_channels, out_channels, rngs=rngs)
-
-    def __call__(self, x):
-        x = nnx.tanh(self.linear1(x))
-        x = nnx.tanh(self.linear2(x))
-        x = nnx.tanh(self.linear3(x))
-        return self.linear4(x)
-
-
 @nnx.jit
 def train_step(model, optimizer, x, y):
     def loss_fn(model):
         y_pred = model(x)
-        return jnp.sum((y_pred - y) ** 2)
+        return jnp.mean((y_pred - y) ** 2)
 
     loss, grads = nnx.value_and_grad(loss_fn)(model)
     optimizer.update(grads)
@@ -201,37 +182,16 @@ print(f"Total number of parameters: {total_params}")
 # ## Training loop
 
 # %% [markdown]
-# We define the training loop and train our model on the small starting dataset.
+# We train our model on the small starting dataset, with MSE loss and optimizer adam.
 
 
 # %%
-def train_model(model, dataloader, n_epochs=1000, lr=1e-3):
-    """Trains the given model on the data.
-
-    Args:
-        model: nnx.Module that represents the model, can be pretrained
-        dataloader: Data on which to train
-        n_epochs: Number of epochs to train for
-        lr: learning rate for optimizer
-
-    Returns:
-        Trained model
-    """
-    optimizer = nnx.Optimizer(model, optax.adam(lr))
-
-    for epoch in range(n_epochs):
-        for x_batch, y_batch in dataloader:
-            loss = train_step(model, optimizer, x_batch, y_batch)
-
-        if epoch % 100 == 0 and epoch != 0:
-            print(f"[epoch {epoch}]: loss: {loss:.4f}")
-    print(f"Final loss: {loss:.4f}")
-    return model
-
-
-n_initial_epochs = len(start_dataloader) * 100
-
-start_model = train_model(start_model, start_dataloader, n_epochs=n_initial_epochs)
+lr = 1e-3
+n_initial_epochs = start_dataloader.n_elements() * 100
+optimizer = nnx.Optimizer(start_model, optax.adam(lr))
+start_model = train_model(
+    start_model, optimizer, start_dataloader, train_step, n_epochs=n_initial_epochs
+)
 
 # %% [markdown]
 # Let's now visualize what we have so far:
@@ -249,12 +209,10 @@ DifferencePlot(ax, x_pred, y_pred, y_true, start_dataloader)
 plt.show()
 
 # %% [markdown]
-# The plot visualizes the true function's and datapoints difference to the prediction.
+# The plot visualizes the true function's and datapoint's difference to the prediction.
 # This visualization is chosen such that later, we can visualize the
 # information criteria nicely around the prediction.
 #
-# The model fits the four datapoints well, but it does of course not match
-# the true function well, because it has not seen enough data yet.
 
 # %% [markdown]
 # This concludes steps 1) and 2). Next, we turn to step 3), getting a
@@ -266,20 +224,19 @@ plt.show()
 # the estimated covariance between them given a (probabilistic) model.
 # Since our deep neural network is not probabilistic, we need to add this
 # probabilistic functionality. This is exactly what Laplax is designed to do.
-# We use it to do a Laplace approximation in the weight space and push it forward
+# We use it to do a Laplace approximation in the weight space, which we push forward
 # into the output space.
 
 # %% [markdown]
 # ## Uncertainty Estimation
 
 # %% [markdown]
-# First, we can choose how to approximate the curvature matrix of
-# the network parameters.
+# Before computing the posterior, we choose how to approximate the curvature matrix.
 #
 # By default, we choose the full curvature matrix. This is of course the most accurate,
 # but most expensive option.
 # Since our network is quite small, the full matrix would have only
-# $2209^2 \text{ parameters} \cdot 4 \text{ byte} = 19.5 \text{ MB}$.
+# $2209^2 \text{ entries} \cdot 4 \text{ bytes} = 19.5 \text{ MB}$.
 # Also, laplax never instantiates the full matrix, but performs
 # the downstream calculations in a memory-efficient manner.
 #
@@ -292,7 +249,7 @@ lib_dropdown = widgets.Dropdown(
     value="full",
     description="Curv. est.:",
 )
-display(lib_dropdown)  # noqa: F821
+display(lib_dropdown)
 
 # %%
 print(f"Curvature will be estimated using a {lib_dropdown.value} approximation.")
@@ -311,24 +268,6 @@ curv_args = {} if curv_type in {"full", "diagonal"} else low_rank_args
 
 
 # %%
-def split(model):
-    """Split an nnx module into parameters and parameter-agnostic function.
-
-    Args:
-        model: nnx.module to split.
-
-    Returns:
-        Tuple of callable function taking model input and parameters,
-        and model parameters.
-    """
-    graph_def, params = nnx.split(model)
-
-    def model_fn(input, params):
-        return nnx.call((graph_def, params))(input)[0]
-
-    return model_fn, params
-
-
 def get_posterior_fn(model, data):
     trainset = {"input": data.X, "target": data.y}
     model_fn, params = split(model)
@@ -355,7 +294,7 @@ def get_posterior_covariance_kernel(model, posterior_fn, prior_prec):
         mean=params,
         posterior_fn=posterior_fn,
         prior_arguments={"prior_prec": prior_prec},
-        dense=True,  # If dense = False, returns a slower kernel-vector product.
+        dense=True,
         output_layout=1,
     )
 
@@ -366,11 +305,13 @@ def get_posterior_covariance_kernel(model, posterior_fn, prior_prec):
 
 
 # %% [markdown]
-# To compute the posterior kernel function, we need a prior for the precision.
-# As a best guess, we choose the inverse of the measurement variance.
+# To compute the posterior kernel function, we need a prior precision.
+# Lacking any domain knowledge, we just assume an uninformative prior (low precision).
+# We are going to calibrate the prior precision in the next step anyway;
+# this is just for a first visualization of the uncertainty.
 
 # %%
-prior_prec = 1.0 / sample_variance
+prior_prec = 1e-4
 
 posterior_fn = get_posterior_fn(start_model, start_dataloader)
 kernel = get_posterior_covariance_kernel(start_model, posterior_fn, prior_prec)
@@ -415,13 +356,14 @@ plt.show()
 
 
 # %% [markdown]
-# We see that the computed uncertainty is very large. Ideally, we would want it
+# We see that the computed uncertainty is very large,
+# going over the axis limit of the plot. Ideally, we would want it
 # to be indicative of the standard deviation of the datapoints to the mean prediction:
 # For a well-calibrated model, the residuals are Gaussian with a standard deviation
-# that is equal to the models uncertainty.
+# that is equal to the model's uncertainty.
 # Here however, the model is very underconfident.
 #
-# To counter this, we can calibrate the model on the data by tuning the
+# To counter this, we calibrate the model on the data by tuning the
 # prior precision.
 # We do this by grid searching a range of precision values and evaluating
 # a Gaussian negative log likelihood objective for the data points under
@@ -481,7 +423,7 @@ def calibrate_prior_precision(data, model, posterior_fn, grid_params):
 
 
 grid_params = {
-    "current_guess": 1.0 / sample_variance,  # Best guess before calibration
+    "current_guess": 1.0,  # / sample_variance,
     "magnitudes_to_search": 6,
     "grid_size": 50,
 }
@@ -510,6 +452,13 @@ plt.show()
 # %% [markdown]
 # Now, the uncertainty resembles the magnitude of the errors
 # our model makes much better.
+#
+# <div class="alert alert-block alert-info">
+# Note: We are calibrating the model's prior precision on the training set,
+# which is not ideal. Instead, in practice, calibration should be performed on a
+# holdout dataset. We are doing this for the sake of simplicity and because we are
+# assuming that acquiring data is hard.
+# </div>
 
 # %% [markdown]
 # ## Maximizing total information gain
@@ -529,12 +478,12 @@ plt.show()
 # As MacKay points out, the maximum of this criterion function is exactly at
 # the maximum of the standard deviation we just plotted,
 # as long as the prior variance is constant.
-# This yiels a nice interpretation:
+# This yields a nice interpretation:
 # **To maximize the information gain, sample where we are most uncertain.**
 #
 # It is important to note that calibration can actually influence
 # the position of the maximum,
-# as the prior precision influences the kernel in a non-linear way.
+# as the prior precision influences the information criterion in a non-linear way.
 
 
 # %%
@@ -561,8 +510,7 @@ def total_information_gain(kernel, prior_prec, x_pred):
         x_pred: Candidate points
 
     Returns:
-        Point from x_pred where posterior covariance is maximal,
-        and hence, total information gain is maximal.
+        Total information gain criterion evaluated at x_pred.
     """
     variances_x = kernel(x_pred, x_pred)
     return jnp.log(1 + prior_prec * variances_x) / 2.0
@@ -606,8 +554,9 @@ def active_learning_loop(
     keys = random.split(key, learning_rounds)
 
     plot_data = []
+    optimizer = nnx.Optimizer(model, optax.adam(lr))
 
-    for i, key in enumerate(keys):
+    for i, key in tqdm(enumerate(keys)):
         print(f"Active learning round {i + 1}")
         # 1) Sample new datapoint
         next_target = sample_target(
@@ -616,7 +565,9 @@ def active_learning_loop(
         dataloader = dataloader.add(next_datapoint, jnp.atleast_2d(next_target))
 
         # 2) Continue training
-        model = train_model(model, dataloader, n_epochs=epochs_per_learning_round)
+        model = train_model(
+            model, optimizer, dataloader, train_step, n_epochs=epochs_per_learning_round
+        )
 
         # 3) Calibrate and compute uncertainty
         posterior_fn = get_posterior_fn(model, dataloader)
@@ -667,8 +618,13 @@ show_animation(plot_data)
 
 # %% [markdown]
 # The active learning loop samples mostly in the range between 0 and 1,
-# where the function to be learned has the steepest slopes,
-# and hence the loss is more sensitive to the parameters here.
+# where the true function varies most strongly, making it harder to learn in this area.
+# This leads to larger residuals between the mean prediction and the data,
+# which in turn leads to a higher covariance estimate.
+# The information criterion chooses points with large posterior covariance.
+#
+# In short, this means that the active learning loop focuses on the area
+# where there is most performance to be gained.
 
 # %% [markdown]
 # ## Comparison to passive learning
@@ -688,7 +644,7 @@ sampling_dropdown = widgets.Dropdown(
     value="Random Uniform",
     description="Sampling:",
 )
-display(sampling_dropdown)  # noqa: F821
+display(sampling_dropdown)
 
 # %%
 n_passive_datapoints = n_initial_datapoints + learning_rounds
@@ -707,14 +663,20 @@ passive_ys = vmap(sample)(passive_xs, keys)[:, None]
 
 # Train model with sampled data
 passive_dataloader = DataLoader(passive_xs, passive_ys, batch_size=10)
-if len(passive_dataloader) != len(active_dataloader):
+if passive_dataloader.n_elements() != active_dataloader.n_elements():
     print("Number of datapoints for active and passive learning do not match!")
 
 passive_model = Model(
-    in_channels=1, hidden_channels=64, out_channels=1, rngs=nnx.Rngs(seed)
+    in_channels=1, hidden_channels=32, out_channels=1, rngs=nnx.Rngs(seed)
 )
+
+passive_optimizer = nnx.Optimizer(passive_model, optax.adam(lr))
 passive_model = train_model(
-    passive_model, passive_dataloader, n_epochs=n_passive_epochs
+    passive_model,
+    passive_optimizer,
+    passive_dataloader,
+    train_step,
+    n_epochs=n_passive_epochs,
 )
 
 # Predict with passive model
@@ -739,8 +701,8 @@ print(f"RMSE of active model to true function: {active_rmse:.2f}")
 
 
 # %% [markdown]
-# The actively trained model is closer to the ground truth function,
-# judging from the RMSE, and visualized in the plot.
+# The actively trained model is closer to the ground truth function especially
+# in the area $x<1$. This leads to a smaller RMSE.
 
 # %% [markdown]
 # ## Maximizing information about points of interest
@@ -814,7 +776,6 @@ plot = DifferencePlot(
     next_datapoint,
     [interesting_point],
 )
-
 plt.show()
 
 # %% [markdown]
@@ -846,6 +807,17 @@ with suppress_info_logging("laplax.eval.calibrate"):
     )
 
 # %%
+idx_of_interesting_point = jnp.abs(x_pred - jnp.array(interesting_point)).argmin()
+passive_mae = jnp.abs(
+    y_pred_passive[idx_of_interesting_point] - y_true[idx_of_interesting_point]
+).item()
+active_mae = jnp.abs(
+    y_mean[idx_of_interesting_point] - y_true[idx_of_interesting_point]
+).item()
+
+print(f"MAE of passive model to true function at interesting point: {passive_mae:.3f}")
+print(f"MAE of active model to true function at interesting point: {active_mae:.3f}")
+
 show_animation(plot_data, [interesting_point], no_sampling_zone)
 
 
@@ -863,7 +835,6 @@ def information_gain_about_points(
     prior_prec,
     x_pred,
     points,
-    no_sampling_zone=None,  # noqa: ARG001
 ):
     """Calculate information gain about 'points' at 'x_pred'.
 
@@ -872,8 +843,6 @@ def information_gain_about_points(
         prior_prec: Prior of measurement precision
         x_pred: Candidate points
         points: Points of interest where information is sought
-        no_sampling_zone: Interval where prior precision is assumed to be extremely low,
-            making information gain low in this region
 
     Returns:
         Information gain at x_pred values about the points of interest.
@@ -905,255 +874,42 @@ with suppress_info_logging("laplax.eval.calibrate"):
     )
 
 # %%
+indices_of_points = jnp.abs(
+    jnp.atleast_2d(x_pred) - jnp.atleast_2d(interesting_points)
+).argmin(axis=0)
+
+passive_rmse = jnp.sqrt(
+    jnp.mean((y_pred_passive[indices_of_points] - y_true[indices_of_points]) ** 2)
+).item()
+active_rmse = jnp.sqrt(
+    jnp.mean((y_mean[indices_of_points] - y_true[indices_of_points]) ** 2)
+).item()
+
+print(
+    f"RMSE of passive model to true function at interesting points: {passive_rmse:.3f}"
+)
+print(f"RMSE of active model to true function at interesting points: {active_rmse:.3f}")
+
 show_animation(plot_data, interesting_points)
 
 
 # %% [markdown]
-# Once again, the observed behaviour is unintuitive:
+# Once again, the observed behaviour is intuitive:
 # The chosen points are close to the points of interest,
 # in this case close to the area where two points of interest are located.
+# This is also reflected in the lower RMSE of the
+# active model at the interesting points.
 
 # %% [markdown]
-# This concludes the tutorial for active learning using laplax.
-# As we have seen, laplax can be used to obtain posterior variance information,
-# which is used by different active learning rules we implemented.
+# ## Summary
 
 # %% [markdown]
-# # Bonus: 2D Classification Example
-
-# %% [markdown]
-# As a bonus, we show active learning using the posterior uncertainty on a
-# two-dimensional classification with three classes.
+# In this tutorial, we have implemented and illustrated three information
+# criteria for active learning:
+# We can use the total information gain to improve on passive learning globally,
+# when no region is of special interest. We can also maximize the information gain
+# about a point of interest or an area of interest. The points chosen by the criteria
+# are intuitive, sampling closely to the regions of interest.
 #
-# First, we define the ground truth decision boundary function.
-
-
-# %%
-@jax.jit
-def true_function(point):
-    def f1(x):
-        return 1.9 * x**3 - 1.5 * x**2 + 0.5
-
-    def f2(x):
-        return -1.5 * x**2 + 2 * x + 0.2
-
-    x, y = point[0], point[1]
-    return jnp.where(y >= f2(x), 2, jnp.where(y >= f1(x), 1, 0))
-
-
-# %% [markdown]
-# We generate some initial datapoints and visualize them.
-
-# %%
-n_initial_datapoints = 20
-key1, key2 = random.split(key)
-xs = random.uniform(key1, shape=n_initial_datapoints, minval=0, maxval=1)
-ys = random.uniform(key2, shape=n_initial_datapoints, minval=0, maxval=1)
-points = jnp.stack((xs, ys)).mT
-labels = jax.vmap(true_function)(points)
-class_dataloader = DataLoader(points, labels, batch_size=10)
-
-plot_decision_boundaries()
-plot_datapoints(xs, ys, labels)
-plt.show()
-
-
-# %% [markdown]
-# We reuse the model from above, a small fully connected network with three layers.
-# The only differences are the 2d input, 3 output logits
-# and cross entropy loss instead of MSE.
-
-
-# %%
-@nnx.jit
-def train_step(model, optimizer, batch, labels):  # noqa: F811
-    def loss_fn(model):
-        logits = model(batch)
-        return softmax_cross_entropy_with_integer_labels(logits, labels).sum()
-
-    loss, grads = nnx.value_and_grad(loss_fn)(model)
-    optimizer.update(grads)
-    return loss
-
-
-start_model = Model(
-    in_channels=2, hidden_channels=32, out_channels=3, rngs=nnx.Rngs(seed)
-)
-
-params = nnx.state(start_model)
-total_params = sum(p.size for p in jax.tree.leaves(params))
-print(f"Total number of parameters: {total_params}")
-
-class_model = train_model(start_model, class_dataloader, n_epochs=1000)
-
-# %% [markdown]
-# We visualize the trained model's predictions as background color in the data plane.
-
-# %%
-xv, yv = jnp.meshgrid(jnp.linspace(0, 1, 100), jnp.linspace(0, 1, 100))
-points = jnp.stack([xv.ravel(), yv.ravel()], axis=-1)
-logits = jax.vmap(class_model)(points)
-preds = logits.argmax(axis=-1)
-
-plot_decision_boundaries()
-plot_datapoints(xs, ys, labels)
-plot_prediction(preds)
-
-
-# %% [markdown]
-# In this example, we use only the first rule for maximal total information gain.
-# The maximum of the total information gain is at the same location as the maximum of
-# the standard deviation, as the constants and logarithm in the formula do not change
-# the location of the maximum.
-# Therefore, it is sufficient here to calculate the posterior unertainty using laplax.
-# This is under the assumpion that the prior precision is constant.
-
-
-# %%
-def compute_uncertainty(model, dataloader):
-    trainset = {"input": dataloader.X, "target": dataloader.y}
-    model_fn, params = split(model)
-    ggn_mv = create_ggn_mv(
-        model_fn,
-        params,
-        trainset,
-        loss_fn="cross_entropy",
-    )
-    posterior_fn = create_posterior_fn(
-        curv_type=curv_type,
-        mv=ggn_mv,
-        layout=params,
-        **curv_args,
-    )
-    prob_predictive = partial(
-        set_lin_pushforward,
-        model_fn=model_fn,
-        mean_params=params,
-        posterior_fn=posterior_fn,
-        pushforward_fns=[
-            lin_setup,
-            lin_pred_mean,
-            lin_pred_std,
-        ],
-    )
-    prior_arguments = {"prior_prec": 100.0}
-    prob_predictive = prob_predictive(
-        prior_arguments=prior_arguments,
-    )
-    pred = jax.vmap(prob_predictive)(points)
-    return pred["pred_std"]
-
-
-uncertainties = compute_uncertainty(class_model, class_dataloader)
-uncertainty = uncertainties[jnp.arange(10000), preds]
-
-
-# %% [markdown]
-# We calculate the uncertainty on a regular grid within data space,
-# and find its maximum on the grid.
-# This is going to be the best next datapoint location, according to MacKay.
-# We visualize the uncertainty as the alpha-value of the prediction colors,
-# with stronger color corresponding to larger uncertainty.
-#
-# 'get_next_point_sampled' is an alternative rule to find the next datapoint,
-# which samples from the data plane by interpreting the uncertainty as logits to
-# a categorical distribution. This way, random points with high uncertainty are chosen,
-# which prevents the active learning loop from sampling in the same region repeatedly.
-# Feel free to try out both methods in the active learning loop and see the difference!
-#
-
-
-# %%
-def get_next_point(uncertainty):
-    return points[jnp.argmax(uncertainty)]
-
-
-def get_next_point_sampled(key, uncertainty):
-    return points[jax.random.categorical(key, uncertainty)]
-
-
-next_point = get_next_point(uncertainty)
-
-plot_decision_boundaries()
-plot_datapoints(xs, ys, labels)
-plot_prediction(preds, uncertainty)
-plot_next_point(next_point)
-
-# %% [markdown]
-# We see that the uncertainty is large where the model thinks the
-# decision boundary lies, and low elsewhere.
-# This means the active learning loop is going to sample in these areas,
-# confirming or adapting the found decision boundary.
-
-# %%
-learning_rounds = 20
-epochs_per_learning_round = 50
-plot_data = []
-keys = jax.random.split(key, learning_rounds)
-
-for i, key in enumerate(keys):
-    print(f"Active learning round {i + 1}")
-    # 1) Sample new datapoint
-    next_target = true_function(next_point)
-    class_dataloader = class_dataloader.add(next_point, jnp.atleast_1d(next_target))
-
-    # 2) Continue training
-    class_model = train_model(
-        class_model, class_dataloader, n_epochs=epochs_per_learning_round
-    )
-    grid_preds = jnp.argmax(class_model(points), axis=-1)
-
-    # 3) Compute uncertainty
-    uncertainties = compute_uncertainty(class_model, class_dataloader)
-    uncertainty = uncertainties[jnp.arange(10000), grid_preds]
-
-    # 4) Find next datapoint location
-    next_point = get_next_point_sampled(key, uncertainty)
-
-    # Plotting
-    data_preds = jnp.argmax(class_model(class_dataloader.X), axis=-1)
-    plot_data.append((
-        grid_preds,
-        class_dataloader,
-        data_preds,
-        uncertainty,
-        next_point,
-    ))
-    print("-----------------------")
-
-# %%
-show_animation_classification(plot_data)
-
-# %% [markdown]
-# ### Comparison against passive learning
-
-# %% [markdown]
-# As in the previous task, we compare our actively trained model against one
-# that is trained as usual, with a fixed dataset.
-
-# %%
-n_passive_datapoints = n_initial_datapoints + learning_rounds
-key1, key2 = random.split(key)
-xs = random.uniform(key1, shape=n_passive_datapoints, minval=0, maxval=1)
-ys = random.uniform(key2, shape=n_passive_datapoints, minval=0, maxval=1)
-datapoints = jnp.stack((xs, ys)).mT
-labels = jax.vmap(true_function)(datapoints)
-passive_class_dl = DataLoader(datapoints, labels, batch_size=10)
-
-passive_class_model = Model(
-    in_channels=2, hidden_channels=32, out_channels=3, rngs=nnx.Rngs(seed)
-)
-passive_class_model = train_model(passive_class_model, passive_class_dl, n_epochs=1500)
-
-logits = jax.vmap(passive_class_model)(points)
-preds = logits.argmax(axis=-1)
-
-plot_decision_boundaries()
-plot_datapoints(xs, ys, labels)
-plot_prediction(preds)
-plt.show()
-
-# %% [markdown]
-# The passively trained model's prediction boundaries are not well-aligned with
-# the ground truth, simply because there are few datapoints close to the
-# ground truth boundaries, from which it could have learned them.
+# We have also seen how to use laplax for computing the posterior covariance,
+# which is needed for these criteria, and how to calibrate the prior precision.
