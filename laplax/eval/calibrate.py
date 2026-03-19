@@ -138,6 +138,16 @@ def grid_search(
     best_prior_prec = prior_precs[np.nanargmin(results)]
     logger.info(f"Chosen prior prec = {best_prior_prec:.4f}")
 
+    # Warn if the found precision is at the edge of the grid
+    if (
+        best_prior_prec == prior_prec_interval[0]
+        or best_prior_prec == prior_prec_interval[-1]
+    ):
+        logger.info(
+            "Found precision is at the edge of the grid."
+            " Consider increasing the grid size."
+        )
+
     return best_prior_prec
 
 
