@@ -435,8 +435,8 @@ plt.show()
 # This results in a higher overall accuracy for the actively learned model.
 
 # %%
-print(f"Accuracy of actively trained model: {accuracies[-1]:.3f}")
-print(f"Accuracy of passively trained model: {passive_acc:.3f}")
+print(f"Accuracy of actively trained model: {accuracies[-1] * 100:.1f}%")
+print(f"Accuracy of passively trained model: {passive_acc * 100:.1f}%")
 
 plt.plot(accuracies * 100, label="Active learning")
 plt.hlines(
