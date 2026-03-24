@@ -7,7 +7,7 @@ Currently supported curvature-vector products are:
 - **GGN-mv (Generalized Gauss-Newton):**
 
     $$
-    v \mapsto \sum_{n=1}^{N} \mathcal{J}_\theta^\top(f_{\theta^*}(x_n)) \nabla^2_{f_{\theta^*}(x_n),f_{\theta^*}(x_n)} \ell(f_\theta(x_n), y_n) \mathcal{J}_\theta(f_{\theta^*})\, v
+    v \mapsto \sum_{n=1}^{N} \mathcal{J}_\theta^\top(f_{\theta^*}(x_n)) \nabla^2_{f_{\theta^*}(x_n),f_{\theta^*}(x_n)} \ell(f_\theta(x_n), y_n) \mathcal{J}_\theta(f_{\theta^*}(x_n))\, v
     $$
 
 - **Hessian-mv (Hessian):**
@@ -15,9 +15,23 @@ Currently supported curvature-vector products are:
     v \mapsto \sum_{n=1}^{N} \nabla_{\theta \theta}^2 \ell(f_\theta(x_n), y_n)\,v
     $$
 
+- **Empirical-Fisher-mv:**
+
+    $$
+    v \mapsto \sum_{n=1}^{N}\mathcal{J}_\theta^\top(f_{\theta^*}(x_n))\nabla_{f_{\theta^*}(x_n)} \ell(f_\theta(x_n), y_n)\nabla_{f_{\theta^*}(x_n)}^\top \ell(f_\theta(x_n), y_n)\mathcal{J}_\theta(f_{\theta^*}(x_n))\, v
+    $$
+
+- **MC-Fisher-mv (Monte-Carlo approximated):**
+
+    $$
+    v \mapsto \sum_{n=1}^{N}\sum_{n=1}^{M}\mathcal{J}_\theta^\top(f_{\theta^*}(x_n))\nabla_{f_{\theta^*}(x_n)}\ell(f_\theta(x_n), \tilde{y}_{n,m})\nabla_{f_{\theta^*}(x_n)}^\top\ell(f_\theta(x_n), \tilde{y}_{n,m})\mathcal{J}_\theta(f_{\theta^*}(x_n))\,v
+    $$
+
+In the latter, $\tilde{y}_{n,m}$ are labels sampled from the likelihood induced by the loss function: $\tilde{y}_{n,m} \sim e^{-\ell(f_\theta(x_n), y)}$
+
 ## Curvature estimators/approximations
 
-For both curvature-vector products, the following methods are supported for approximating and transforming them into a weight space covariance matrix-vector product:
+For all curvature-vector products, the following methods are supported for approximating and transforming them into a weight space covariance matrix-vector product:
 
 - `CurvApprox.FULL` denses the curvature-vector product into a full matrix. The posterior function is then given by
 
