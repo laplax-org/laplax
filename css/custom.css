@@ -1,0 +1,17 @@
+/* Style for namespace/module path */
+h3 code .n {
+    color: #888;
+    font-weight: normal;
+}
+
+/* Style for dots in the path */
+h3 code .o {
+    color: #888;
+    font-weight: normal;
+}
+
+/* Style for the function name (last segment) */
+h3 code .n:last-of-type {
+    color: #000;
+    font-weight: bold;
+}
