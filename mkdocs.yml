@@ -34,6 +34,7 @@ nav:
     - Tiny example: _examples/0000_tiny_laplax.md
     - Laplax for regression: _examples/0001_laplax_for_regression.md
     - Laplax on MNIST: _examples/0002_laplax_on_mnist.md
+    - Laplax for active learning: _examples/0003_laplax_for_active_learning.md
   - API Reference:
     - Overview: api.md
     - Modules:

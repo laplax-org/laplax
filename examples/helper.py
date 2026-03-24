@@ -1,7 +1,28 @@
+from contextlib import contextmanager
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import random
+from loguru import logger
+
+
+# Context manager to suppress info-level logging
+@contextmanager
+def suppress_info_logging(module: str):
+    logger.disable(module)
+    try:
+        # Only disable INFO and below, allow WARNING and above
+        logger.remove()
+        logger.add(
+            lambda _: None,  # Sink that does nothing
+            level="INFO",  # Only suppress INFO and below
+            filter=lambda record: record["name"] == module,
+        )
+        yield
+    finally:
+        logger.enable(module)
+        logger.remove()
 
 
 class DataLoader:
@@ -32,6 +53,16 @@ class DataLoader:
         self.current_idx = end_idx
 
         return self.X[batch_indices], self.y[batch_indices]
+
+    def add(self, x, y):
+        new_X = jnp.concatenate((self.X, jnp.atleast_2d(x)))
+        new_Y = jnp.concatenate((self.y, jnp.atleast_2d(y)))
+        return DataLoader(
+            new_X, new_Y, batch_size=self.batch_size, shuffle=self.shuffle
+        )
+
+    def __len__(self):
+        return self.dataset_size
 
 
 DEFAULT_INTERVALS = [

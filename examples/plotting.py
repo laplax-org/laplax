@@ -1,11 +1,15 @@
 """Plotting utilities."""
 
+from collections.abc import Iterable
 from pathlib import Path
 
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
+from IPython.display import HTML
+from jax.scipy.interpolate import RegularGridInterpolator
+from matplotlib.animation import FuncAnimation
 from tueplots import bundles
 
 
@@ -548,3 +552,188 @@ def plot_figure_1(params, curv, *, save_fig=True):
         plt.savefig("laplax_figure_1.png", bbox_inches="tight", dpi=600)
 
     return fig, ax
+
+
+class DifferencePlot:
+    def __init__(
+        self,
+        axs,
+        x,
+        pred,
+        true=None,
+        data=None,
+        criterion=None,
+        next_location=None,
+        interesting_points=None,
+        no_sampling_zone=None,
+    ):
+        self.x = x.squeeze()
+        self.pred = pred.squeeze()
+        self.axs = axs
+        self.ax = axs[0] if isinstance(axs, Iterable) else axs
+        self.artists = []
+        self.plot_prediction()
+        if true is not None:
+            self.plot_ground_truth(true.squeeze())
+        if data is not None:
+            self.plot_datapoints(data)
+        if criterion is not None:
+            self.plot_criterion(criterion.squeeze())
+        if next_location is not None:
+            self.plot_next_datapoint(next_location)
+        if interesting_points is not None:
+            for point in interesting_points:
+                self.plot_interesting_point(point)
+        if no_sampling_zone is not None:
+            self.plot_no_sampling_zone(no_sampling_zone)
+        self.finalize_plot()
+
+    def plot_prediction(self):
+        self.ax.plot(
+            self.x, jnp.zeros_like(self.x), color="red", label="Mean Prediction"
+        )
+
+    def plot_ground_truth(self, true):
+        ground_truth_difference = true - self.pred
+        artist = self.ax.plot(
+            self.x,
+            ground_truth_difference,
+            color="black",
+            linestyle="--",
+            label="True Function",
+        )
+        self.artists += artist
+
+    def plot_datapoints(self, data):
+        ys = data.y.squeeze()
+        xs = data.X.squeeze()
+        datapoint_difference = ys - RegularGridInterpolator(self.x[None, :], self.pred)(
+            xs
+        )
+        artist = self.ax.scatter(
+            xs,
+            datapoint_difference,
+            marker="x",
+            color="blue",
+            label="Datapoints",
+        )
+        self.artists += (artist,)
+
+    def plot_criterion(self, criterion):
+        artist = self.axs[1].fill_between(
+            self.x,
+            -criterion,
+            +criterion,
+            color="red",
+            alpha=0.2,
+            label="Information criterion",
+        )
+        self.axs[1].set_ylabel("Information")
+        symmetrize_y_axis(self.axs[1])
+        self.artists += (artist,)
+
+    def plot_uncertainty(self, uncertainty):
+        artist = self.ax.fill_between(
+            self.x,
+            -2 * uncertainty,
+            +2 * uncertainty,
+            color="red",
+            alpha=0.2,
+            label="95% confidence interval",
+        )
+        self.artists += (artist,)
+
+    def plot_next_datapoint(self, location):
+        artist = self.ax.axvline(location, color="blue", label="Next datapoint")
+        self.artists += (artist,)
+
+    def plot_interesting_point(self, point):
+        artist = self.ax.axvspan(point - 0.1, point + 0.1, alpha=0.2, color="yellow")
+        self.artists += (artist,)
+
+    def plot_no_sampling_zone(self, zone):
+        artist = self.ax.axvspan(
+            zone[0], zone[1], alpha=0.2, color="grey", label="No sampling zone"
+        )
+        self.artists += (artist,)
+
+    def finalize_plot(self):
+        ax = self.ax
+        symmetrize_y_axis(ax)
+        ax.set_xlabel("x")
+        ax.set_ylabel("Difference from mean prediction")
+        ax.legend(loc="lower right")
+
+
+def symmetrize_y_axis(axes):
+    y_max = np.max(np.abs(axes.get_ylim()))
+    axes.set_ylim(ymin=-y_max, ymax=y_max)
+
+
+def plot_model_comparison(
+    ax, x_pred, ground_truth, prediction_1, prediction_2, dataloader=None
+):
+    ground_truth = ground_truth.squeeze()
+    x_pred = x_pred.squeeze()
+
+    ax.plot(
+        x_pred,
+        jnp.zeros_like(x_pred),
+        color="black",
+        linestyle="--",
+        label="True Function",
+    )
+    prediction_1_difference = prediction_1.squeeze() - ground_truth
+    ax.plot(
+        x_pred,
+        prediction_1_difference,
+        color="red",
+        label="Passively learned prediction",
+    )
+
+    prediction_2_difference = prediction_2.squeeze() - ground_truth
+    ax.plot(
+        x_pred,
+        prediction_2_difference,
+        color="orange",
+        label="Actively learned Prediction",
+    )
+    if dataloader is not None:
+        y = dataloader.y.squeeze()
+        x = dataloader.X.squeeze()
+        datapoint_difference = y - RegularGridInterpolator(
+            x_pred[None, :], ground_truth
+        )(x)
+        ax.scatter(
+            x,
+            datapoint_difference,
+            marker="x",
+            color="blue",
+            label="Training datapoints",
+        )
+    ax.set_ylim((-0.6, 0.6))
+    ax.set_xlabel("x")
+    ax.set_ylabel("Difference from ground truth")
+    ax.legend(loc="lower right")
+
+
+def show_animation(plot_data, interesting_points=None, no_sampling_zone=None):
+    fig, ax1 = plt.subplots(figsize=(10, 5))
+    ax2 = ax1.twinx()
+
+    def update(frame):
+        ax1.clear()
+        ax2.clear()
+        plot = DifferencePlot(
+            (ax1, ax2), *(plot_data[frame]), interesting_points, no_sampling_zone
+        )
+        ax2.yaxis.set_label_position("right")
+        ax2.yaxis.tick_right()
+        ax2.set_ylim((-2.0, 2.0))
+        return plot.artists
+
+    animation = FuncAnimation(
+        fig, update, frames=len(plot_data), interval=1500, repeat_delay=2000
+    )
+    plt.close(fig)  # Prevent duplicate figure
+    return HTML(animation.to_jshtml())
