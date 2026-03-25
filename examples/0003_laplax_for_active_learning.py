@@ -57,7 +57,7 @@ from jax import numpy as jnp
 from jax import random, vmap
 from matplotlib import pyplot as plt
 from plotting import (
-    DifferencePlot,
+    ResultPlot,
     plot_model_comparison,
     show_animation,
 )
@@ -97,7 +97,7 @@ key = random.key(seed)
 
 # %%
 var_widget = widgets.FloatLogSlider(
-    value=0.05, base=10, min=-3, max=0, step=0.001, description="Variance"
+    value=0.01, base=10, min=-3, max=0, step=0.001, description="Variance"
 )
 display(var_widget)
 
@@ -106,7 +106,7 @@ sample_variance = var_widget.value
 print("Sample variance: ", sample_variance)
 
 
-def sample_target(x, key, sample_variance=0.05):
+def sample_target(x, key, sample_variance=0.01):
     """Sample a target (label) for a given datapoint x.
 
     Args:
@@ -186,7 +186,7 @@ print(f"Total number of parameters: {total_params}")
 
 
 # %%
-lr = 1e-3
+lr = 5e-3
 n_initial_epochs = start_dataloader.n_elements() * 100
 optimizer = nnx.Optimizer(start_model, optax.adam(lr))
 start_model = train_model(
@@ -205,13 +205,12 @@ y_true = true_function(x_pred)
 y_pred = start_model(x_pred)
 
 _, ax = plt.subplots(figsize=(10, 5))
-DifferencePlot(ax, x_pred, y_pred, y_true, start_dataloader)
+ResultPlot(ax, x_pred, y_pred, y_true, start_dataloader)
 plt.show()
 
 # %% [markdown]
-# The plot visualizes the true function's and datapoint's difference to the prediction.
-# This visualization is chosen such that later, we can visualize the
-# information criteria nicely around the prediction.
+# The plot visualizes the true function and the model's prediction.
+# The markers on the x-axis visualize the location of the initial datapoints.
 #
 
 # %% [markdown]
@@ -349,7 +348,7 @@ uncertainty = get_uncertainty_from_kernel(kernel, x_pred)
 
 # %%
 _, ax = plt.subplots(figsize=(10, 5))
-plot = DifferencePlot(ax, x_pred, y_pred, y_true, start_dataloader)
+plot = ResultPlot(ax, x_pred, y_pred, y_true, start_dataloader)
 plot.plot_uncertainty(uncertainty)
 plot.finalize_plot()
 plt.show()
@@ -423,7 +422,7 @@ def calibrate_prior_precision(data, model, posterior_fn, grid_params):
 
 
 grid_params = {
-    "current_guess": 1.0,  # / sample_variance,
+    "current_guess": 100.0,  # / sample_variance,
     "magnitudes_to_search": 6,
     "grid_size": 50,
 }
@@ -443,14 +442,14 @@ kernel = get_posterior_covariance_kernel(start_model, posterior_fn, prior_prec)
 y_std = get_uncertainty_from_kernel(kernel, x_pred)
 
 _, ax = plt.subplots(figsize=(10, 5))
-plot = DifferencePlot(ax, x_pred, y_pred, y_true, start_dataloader)
+plot = ResultPlot(ax, x_pred, y_pred, y_true, start_dataloader)
 plot.plot_uncertainty(y_std)
 plot.finalize_plot()
 plt.show()
 
 
 # %% [markdown]
-# Now, the uncertainty resembles the magnitude of the errors
+# Now, the uncertainty resembles the magnitude of the error
 # our model makes much better.
 #
 # <div class="alert alert-block alert-info">
@@ -574,7 +573,7 @@ def active_learning_loop(
         grid_params = {
             "current_guess": prior_prec,
             "magnitudes_to_search": 0.5,
-            "grid_size": 20,
+            "grid_size": 10,
         }
         prior_prec = calibrate_prior_precision(
             dataloader, model, posterior_fn, grid_params
@@ -702,7 +701,7 @@ print(f"RMSE of active model to true function: {active_rmse:.2f}")
 
 # %% [markdown]
 # The actively trained model is closer to the ground truth function especially
-# in the area $x<1$. This leads to a smaller RMSE.
+# in the area $x<1$. This leads to a slightly smaller RMSE.
 
 # %% [markdown]
 # ## Maximizing information about points of interest
@@ -766,7 +765,7 @@ next_datapoint = find_maximum(x_pred, criterion)
 
 fig, ax = plt.subplots(figsize=(10, 5))
 ax2 = ax.twinx()
-plot = DifferencePlot(
+plot = ResultPlot(
     (ax, ax2),
     x_pred,
     y_mean,
@@ -820,6 +819,13 @@ print(f"MAE of active model to true function at interesting point: {active_mae:.
 
 show_animation(plot_data, [interesting_point], no_sampling_zone)
 
+
+# %% [markdown]
+# Here, it is important to consider in the evaluation that the passively trained model
+# is the same as before,
+# which can include datapoints from within the no-sampling zone.
+# Still, the actively trained model outperforms the other one,
+# simply because the training data is more relevant to the evaluated task.
 
 # %% [markdown]
 # Finally, we generalize the last criterion to apply to a set of interesting points.
@@ -910,6 +916,8 @@ show_animation(plot_data, interesting_points)
 # when no region is of special interest. We can also maximize the information gain
 # about a point of interest or an area of interest. The points chosen by the criteria
 # are intuitive, sampling closely to the regions of interest.
+# In these more specialized tasks,
+# the advantages of active learning becomes apparent.
 #
 # We have also seen how to use laplax for computing the posterior covariance,
 # which is needed for these criteria, and how to calibrate the prior precision.
