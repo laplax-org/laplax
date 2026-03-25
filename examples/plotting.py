@@ -8,8 +8,9 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 from IPython.display import HTML
-from jax.scipy.interpolate import RegularGridInterpolator
 from matplotlib.animation import FuncAnimation
+from matplotlib.collections import EventCollection
+from matplotlib.colors import SymLogNorm
 from tueplots import bundles
 
 
@@ -554,7 +555,7 @@ def plot_figure_1(params, curv, *, save_fig=True):
     return fig, ax
 
 
-class DifferencePlot:
+class ResultPlot:
     def __init__(
         self,
         axs,
@@ -573,6 +574,7 @@ class DifferencePlot:
         self.ax = axs[0] if isinstance(axs, Iterable) else axs
         self.artists = []
         self.plot_prediction()
+        self.ax.set_ylim(ymin=-0.25, ymax=1.05)
         if true is not None:
             self.plot_ground_truth(true.squeeze())
         if data is not None:
@@ -589,15 +591,12 @@ class DifferencePlot:
         self.finalize_plot()
 
     def plot_prediction(self):
-        self.ax.plot(
-            self.x, jnp.zeros_like(self.x), color="red", label="Mean Prediction"
-        )
+        self.ax.plot(self.x, self.pred, color="red", label="Mean Prediction")
 
     def plot_ground_truth(self, true):
-        ground_truth_difference = true - self.pred
         artist = self.ax.plot(
             self.x,
-            ground_truth_difference,
+            true,
             color="black",
             linestyle="--",
             label="True Function",
@@ -605,38 +604,36 @@ class DifferencePlot:
         self.artists += artist
 
     def plot_datapoints(self, data):
-        ys = data.y.squeeze()
         xs = data.X.squeeze()
-        datapoint_difference = ys - RegularGridInterpolator(self.x[None, :], self.pred)(
-            xs
-        )
-        artist = self.ax.scatter(
+        offset = self.ax.get_ylim()[0]
+        x_events = EventCollection(
             xs,
-            datapoint_difference,
-            marker="x",
             color="blue",
-            label="Datapoints",
+            linelength=0.05,
+            lineoffset=offset,
+            label="Datapoint Locations",
         )
+        artist = self.ax.add_collection(x_events)
         self.artists += (artist,)
 
     def plot_criterion(self, criterion):
-        artist = self.axs[1].fill_between(
+        artist = self.axs[1].plot(
             self.x,
-            -criterion,
             +criterion,
-            color="red",
-            alpha=0.2,
-            label="Information criterion",
+            color="teal",
+            alpha=0.7,
         )
+        # For legend label
+        self.ax.plot(0, 0, color="teal", alpha=0.7, label="Information Criterion")
+        self.axs[1].set_ylim(0, 2)
         self.axs[1].set_ylabel("Information")
-        symmetrize_y_axis(self.axs[1])
         self.artists += (artist,)
 
     def plot_uncertainty(self, uncertainty):
         artist = self.ax.fill_between(
             self.x,
-            -2 * uncertainty,
-            +2 * uncertainty,
+            self.pred - 2 * uncertainty,
+            self.pred + 2 * uncertainty,
             color="red",
             alpha=0.2,
             label="95% confidence interval",
@@ -644,7 +641,16 @@ class DifferencePlot:
         self.artists += (artist,)
 
     def plot_next_datapoint(self, location):
-        artist = self.ax.axvline(location, color="blue", label="Next datapoint")
+        offset = self.ax.get_ylim()[0]
+        x_events = EventCollection(
+            location,
+            color="blue",
+            linelength=0.2,
+            lineoffset=offset,
+            linestyle="--",
+            label="Next datapoint location",
+        )
+        artist = self.ax.add_collection(x_events)
         self.artists += (artist,)
 
     def plot_interesting_point(self, point):
@@ -659,10 +665,11 @@ class DifferencePlot:
 
     def finalize_plot(self):
         ax = self.ax
-        symmetrize_y_axis(ax)
+
+        # symmetrize_y_axis(ax)
         ax.set_xlabel("x")
-        ax.set_ylabel("Difference from mean prediction")
-        ax.legend(loc="lower right")
+        ax.set_ylabel("Function value")
+        ax.legend(loc="upper right")
 
 
 def symmetrize_y_axis(axes):
@@ -681,14 +688,14 @@ def plot_model_comparison(
         jnp.zeros_like(x_pred),
         color="black",
         linestyle="--",
-        label="True Function",
+        label="True Baseline",
     )
     prediction_1_difference = prediction_1.squeeze() - ground_truth
     ax.plot(
         x_pred,
         prediction_1_difference,
         color="red",
-        label="Passively learned prediction",
+        label="Residuals of passively learned prediction",
     )
 
     prediction_2_difference = prediction_2.squeeze() - ground_truth
@@ -696,44 +703,120 @@ def plot_model_comparison(
         x_pred,
         prediction_2_difference,
         color="orange",
-        label="Actively learned Prediction",
+        label="Residuals of actively learned prediction",
     )
-    if dataloader is not None:
-        y = dataloader.y.squeeze()
-        x = dataloader.X.squeeze()
-        datapoint_difference = y - RegularGridInterpolator(
-            x_pred[None, :], ground_truth
-        )(x)
-        ax.scatter(
-            x,
-            datapoint_difference,
-            marker="x",
-            color="blue",
-            label="Training datapoints",
-        )
     ax.set_ylim((-0.6, 0.6))
+    if dataloader is not None:
+        xs = dataloader.X.squeeze()
+        offset = ax.get_ylim()[0]
+        x_events = EventCollection(
+            xs,
+            color="blue",
+            linelength=0.05,
+            lineoffset=offset,
+            label="Datapoint Locations",
+        )
+        ax.add_collection(x_events)
     ax.set_xlabel("x")
     ax.set_ylabel("Difference from ground truth")
     ax.legend(loc="lower right")
 
 
 def show_animation(plot_data, interesting_points=None, no_sampling_zone=None):
-    fig, ax1 = plt.subplots(figsize=(10, 5))
+    fig, ax1 = plt.subplots(figsize=(8, 4))
     ax2 = ax1.twinx()
 
     def update(frame):
         ax1.clear()
         ax2.clear()
-        plot = DifferencePlot(
+        plot = ResultPlot(
             (ax1, ax2), *(plot_data[frame]), interesting_points, no_sampling_zone
         )
         ax2.yaxis.set_label_position("right")
         ax2.yaxis.tick_right()
-        ax2.set_ylim((-2.0, 2.0))
+        # ax2.set_ylim((-2.0, 2.0))
         return plot.artists
 
     animation = FuncAnimation(
         fig, update, frames=len(plot_data), interval=1500, repeat_delay=2000
     )
     plt.close(fig)  # Prevent duplicate figure
+    return HTML(animation.to_jshtml())
+
+
+# Active classification learning example
+# --------------------------------------
+def plot_decision_boundaries(ax=None):
+    def f1(x):
+        return 1.9 * x**3 - 1.5 * x**2 + 0.5
+
+    def f2(x):
+        return -1.5 * x**2 + 2 * x + 0.2
+
+    ax = ax if ax is not None else plt.gca()
+    xs = jnp.linspace(0, 1, 100)
+    condition = jnp.logical_and(xs > 0.15343, xs < 0.94062)
+    boundary_1 = f1(xs)
+    boundary_2 = f2(xs)
+    ax.plot(xs[condition], boundary_1[condition], linestyle="--", color="black")
+    ax.plot(xs, boundary_2, linestyle="--", color="black", label="True boundary")
+    ax.legend(loc="lower right")
+
+
+def plot_datapoints(dataloader, ax=None):
+    ax = ax if ax is not None else plt.gca()
+    xs = dataloader.X[:, 0]
+    ys = dataloader.X[:, 1]
+    labels = dataloader.y
+    ax.scatter(xs, ys, c=labels, edgecolor="black")
+    ax.scatter(-1, -1, c="white", edgecolor="black", label="Datapoints")
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.legend(loc="lower right")
+
+
+def plot_prediction(labels, uncertainty=None, ax=None):
+    ax = ax if ax is not None else plt.gca()
+    labels = labels.reshape((100, 100))
+    if uncertainty is not None:
+        uncertainty = np.asarray(uncertainty)
+        norm = SymLogNorm(0.001, vmin=uncertainty.min(), vmax=uncertainty.max())
+        alpha = (norm(uncertainty) + 0.0001) * 0.999
+        alpha = alpha.reshape((100, 100))
+    else:
+        alpha = 0.4
+    ax.imshow(labels, origin="lower", extent=(0, 1, 0, 1), alpha=alpha)
+
+
+def plot_next_point(point, ax=None):
+    ax = ax if ax is not None else plt.gca()
+    ax.scatter(
+        point[0],
+        point[1],
+        marker="v",
+        c="red",
+        edgecolor="black",
+        label="Next location",
+    )
+    ax.legend(loc="lower right")
+
+
+def show_animation_classification(plot_data):
+    fig, ax = plt.subplots(figsize=(6, 6))
+
+    def update(frame):
+        ax.clear()
+        grid_preds, dl, uncertainty, next_point = plot_data[frame]
+
+        plot_prediction(grid_preds, uncertainty, ax)
+        plot_datapoints(dl, ax)
+        plot_decision_boundaries(ax)
+        plot_next_point(next_point, ax)
+
+    animation = FuncAnimation(
+        fig, update, frames=len(plot_data), interval=1500, repeat_delay=2000
+    )
+    plt.close(fig)  # Prevent duplicate figure
+    # with open("animation.html", "w") as f: # save animation
+    #    f.write(animation.to_jshtml())
     return HTML(animation.to_jshtml())
