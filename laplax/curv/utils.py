@@ -5,16 +5,20 @@ from dataclasses import dataclass
 
 import jax
 import jax.numpy as jnp
+from jax.random import bernoulli, categorical, normal
 
 from laplax.enums import LossFn
 from laplax.types import (
     Array,
     Float,
     InputArray,
+    Int,
+    KeyType,
     Layout,
     ModelFn,
     Num,
     Params,
+    PredArray,
     TargetArray,
 )
 from laplax.util.flatten import create_pytree_flattener, wrap_function
@@ -196,4 +200,46 @@ def concatenate_model_and_loss_fn(
         return loss_wrapper
 
     msg = f"unknown loss function: {loss_fn}"
+    raise ValueError(msg)
+
+
+def sample_likelihood(
+    loss_fn: LossFn | str,
+    f_ns: PredArray,
+    mc_samples: Int,
+    key: KeyType,
+) -> TargetArray:
+    r"""Sample from a loss function interpreted as negative log-likelihood.
+
+    Samples labels $\tilde{y}$ from the likelihood defined as
+    $$p(y | \text{f_ns}) = e^{-\text{loss_fn}(y, \text{f_ns})}$$
+
+    Args:
+        loss_fn: The loss function to interpret as negative log-likelihood
+        f_ns: Batch of model predictions
+        mc_samples: Number of samples to draw
+        key: Random key for sampling
+
+    Returns:
+        Array samples of shape (batch_size, mc_samples, target_dimension).
+
+    Raises:
+        ValueError: If passed 'loss_fn' is not supported.
+    """
+    *n, o = f_ns.shape
+    if loss_fn == LossFn.MSE:
+        unit_samples = normal(key, shape=(*n, mc_samples, o))
+        return unit_samples * jnp.sqrt(0.5) + f_ns[..., None, :]
+
+    if loss_fn == LossFn.CROSS_ENTROPY:
+        f_ns = jnp.expand_dims(f_ns, axis=-2)
+        return categorical(key, f_ns, shape=(*n, mc_samples), replace=True)[..., None]
+
+    if loss_fn == LossFn.BINARY_CROSS_ENTROPY:
+        probs = jax.nn.sigmoid(f_ns)
+        probs = jnp.expand_dims(probs, axis=-2)
+        bool_samples = bernoulli(key, probs, shape=(*n, mc_samples, o))
+        return jnp.astype(bool_samples, jnp.float32)
+
+    msg = f"Unsupported LossFn {loss_fn} to sample from."
     raise ValueError(msg)

@@ -125,6 +125,19 @@ def mean(tree: PyTree, **kwargs: Kwargs) -> PyTree:
     return jax.tree.map(partial(jnp.mean, **kwargs), tree)
 
 
+def _sum(tree: PyTree, **kwargs: Kwargs) -> PyTree:
+    """Compute the sum of each element in a PyTree.
+
+    Args:
+        tree: A PyTree whose elements are to be summed.
+        **kwargs: Additional keyword arguments for `jnp.sum`.
+
+    Returns:
+        A PyTree with summed elements.
+    """
+    return jax.tree.map(partial(jnp.sum, **kwargs), tree)
+
+
 def std(tree: PyTree, **kwargs: Kwargs) -> PyTree:
     """Compute the standard deviation of each element in a PyTree.
 

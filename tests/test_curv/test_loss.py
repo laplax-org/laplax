@@ -1,0 +1,237 @@
+from functools import partial
+
+import jax
+import jax.numpy as jnp
+import optax
+import pytest
+from jaxtyping import Array, Float, Int, Num, PRNGKeyArray, PyTree  # noqa: F401
+
+from laplax.curv.loss import (
+    create_loss_hessian_mv,
+    fetch_loss_gradient_fn,
+    fetch_loss_hessian_mv,
+)
+from laplax.enums import LossFn
+
+# ---------------------------------------------------------------
+# Loss Gradients
+# ---------------------------------------------------------------
+
+
+def test_single_binary_cross_entropy_loss_gradient():
+    key = jax.random.key(0)
+    target = jnp.zeros(1)
+    logits = jax.random.normal(key, (1,))
+
+    # Set loss gradient via autodiff
+    def BCE(f, y):
+        return optax.sigmoid_binary_cross_entropy(f, y)[0]
+
+    grad_autodiff = jax.grad(
+        BCE,
+    )(logits, target)
+
+    # Set loss gradient via laplax
+    grad_fn_laplax = fetch_loss_gradient_fn(
+        LossFn.BINARY_CROSS_ENTROPY, None, handle_batches=False
+    )
+    grad_laplax = grad_fn_laplax(logits, target)
+    assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
+
+
+def test_binary_cross_entropy_loss_gradient_vmap():
+    key = jax.random.key(0)
+    target = jnp.zeros(5)
+    logits = jax.random.normal(key, (5,))
+
+    # Set loss gradient via autodiff
+    def BCE(f, y):
+        return optax.sigmoid_binary_cross_entropy(f, y)
+
+    grad_autodiff = jax.vmap(
+        jax.grad(
+            BCE,
+        )
+    )(logits, target)
+
+    # Set loss gradient via laplax
+    grad_fn_laplax = fetch_loss_gradient_fn(
+        LossFn.BINARY_CROSS_ENTROPY, None, handle_batches=False
+    )
+    grad_laplax = grad_fn_laplax(logits, target)
+
+    assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
+
+
+def test_cross_entropy_loss_gradient():
+    key = jax.random.key(0)
+    target = jnp.asarray([2], dtype=int)
+    logits = jax.random.normal(key, (3,))
+
+    # Set loss gradient via autodiff
+    def fn(f, y):
+        return optax.softmax_cross_entropy_with_integer_labels(f[None, :], y)[0]
+
+    grad_autodiff = jax.grad(fn)(logits, target)  # (3)
+
+    # Set loss gradient via laplax
+    grad_fn_laplax = fetch_loss_gradient_fn("cross_entropy", None, handle_batches=False)
+    grad_laplax = grad_fn_laplax(logits, target)
+
+    assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
+
+
+def test_cross_entropy_loss_gradient_batched():
+    key = jax.random.key(0)
+    targets = jnp.zeros(5, dtype=int)
+    targets.at[3].set(2)
+    logits = jax.random.normal(key, (5, 3))
+
+    # Set loss gradient via autodiff
+    grad_autodiff = jax.vmap(
+        jax.grad(
+            optax.softmax_cross_entropy_with_integer_labels,
+        )
+    )(logits, targets)  # (5,3)
+
+    # Set loss gradient via laplax
+    grad_fn_laplax = fetch_loss_gradient_fn("cross_entropy", None, handle_batches=True)
+    grad_laplax = grad_fn_laplax(logits, targets)
+    assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
+
+
+def test_mean_sqared_error_loss_gradient_batched():
+    key = jax.random.key(0)
+    targets = jnp.zeros((5, 3))
+    values = jax.random.normal(key, (5, 3))
+
+    # Set loss gradient via autodiff
+    grad_autodiff = jax.vmap(
+        jax.grad(
+            lambda pred, target: jnp.sum((pred - target) ** 2),
+        )
+    )(values, targets)  # (5,3)
+
+    # Set loss gradient via laplax
+    grad_fn_laplax = fetch_loss_gradient_fn(LossFn.MSE, None, handle_batches=True)
+    grad_laplax = grad_fn_laplax(values, targets)
+    assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
+
+
+def test_callable_loss_gradient():
+    key = jax.random.key(0)
+    keys = jax.random.split(key, 3)
+    preds = jax.random.normal(keys[0], (10, 3))
+    targets = jax.random.normal(keys[1], (10, 3))
+
+    # Set random loss function
+    random_arr = jax.random.normal(keys[2], (3,))
+
+    def loss_func(pred, target):
+        return jnp.sum(random_arr @ (pred - target) ** 3)
+
+    # Set loss hessian via autodiff
+    grad_autodiff = jax.vmap(jax.grad(loss_func))(preds, targets)
+
+    # Set loss hessian via laplax mv
+    grad_fn = fetch_loss_gradient_fn(loss_func, None, handle_batches=True)
+    grad_laplax = grad_fn(preds, targets)
+
+    assert jnp.allclose(grad_autodiff, grad_laplax, atol=1e-8)
+
+
+def test_gradients_ValueErrors_are_raised():
+    with pytest.raises(ValueError, match="Either"):
+        fetch_loss_gradient_fn(None, None)
+    with pytest.raises(ValueError, match="Only one of"):
+        fetch_loss_gradient_fn(lambda x: x, lambda y: y)
+    with pytest.raises(ValueError, match="Unsupported loss"):
+        fetch_loss_gradient_fn("DefinitelyUnsupportedSuperObscureSpaceballLoss", None)
+
+
+# ---------------------------------------------------------------
+# Loss Hessians
+# ---------------------------------------------------------------
+
+
+def test_binary_cross_entropy_loss_hessian():
+    key = jax.random.key(0)
+    target = jnp.asarray(0)
+    logits = jax.random.normal(key, (1,))
+
+    # Set loss hessian via autodiff
+    hess_autodiff = jax.hessian(
+        optax.sigmoid_binary_cross_entropy,
+    )(logits, target)
+
+    # Set loss hessian via laplax mv
+    hess_mv = create_loss_hessian_mv("binary_cross_entropy")
+    hess_laplax = jax.vmap(partial(hess_mv, pred=logits))(jnp.eye(1))
+
+    assert jnp.allclose(hess_autodiff, hess_laplax, atol=1e-8)
+
+
+def test_cross_entropy_loss_hessian():
+    key = jax.random.key(0)
+    target = jnp.asarray(0)
+    logits = jax.random.normal(key, (10,))
+
+    # Set loss hessian via autodiff
+    hess_autodiff = jax.hessian(
+        optax.softmax_cross_entropy_with_integer_labels,
+    )(logits, target)
+
+    # Set loss hessian via laplax mv
+    hess_mv = create_loss_hessian_mv("cross_entropy")
+    hess_laplax = jax.vmap(partial(hess_mv, pred=logits))(jnp.eye(10))
+
+    assert jnp.allclose(hess_autodiff, hess_laplax, atol=1e-8)
+
+
+def test_mse_loss_hessian():
+    key = jax.random.key(0)
+    keys = jax.random.split(key, 2)
+    pred = jax.random.normal(keys[0], (10,))
+    target = jax.random.normal(keys[1], (10,))
+
+    # Set loss hessian via autodiff
+    hess_autodiff = jax.hessian(
+        lambda pred, target: jnp.sum((pred - target) ** 2),
+    )(pred, target)
+
+    # Set loss hessian via laplax mv
+    hess_mv = create_loss_hessian_mv(LossFn.MSE)
+    hess_laplax = jax.vmap(partial(hess_mv, pred=pred))(jnp.eye(10))
+
+    assert jnp.allclose(hess_autodiff, hess_laplax, atol=1e-8)
+
+
+def test_callable_loss_hessian():
+    key = jax.random.key(0)
+    keys = jax.random.split(key, 3)
+    pred = jax.random.normal(keys[0], (10,))
+    target = jax.random.normal(keys[1], (10,))
+
+    # Set random loss function
+    random_arr = jax.random.normal(keys[2], (10,))
+
+    def loss_func(pred, target):
+        return jnp.sum(random_arr @ (pred - target) ** 3)
+
+    # Set loss hessian via autodiff
+    hess_autodiff = jax.hessian(loss_func)(pred, target)
+
+    # Set loss hessian via laplax mv
+    hess_mv = create_loss_hessian_mv(loss_func)
+    hess_laplax = jax.vmap(partial(hess_mv, pred=pred, target=target))(jnp.eye(10))
+
+    assert jnp.allclose(hess_autodiff, hess_laplax, atol=1e-8)
+
+
+def test_hessians_ValueErrors_are_raised():
+    with pytest.raises(ValueError, match="Either"):
+        fetch_loss_hessian_mv(None, None)
+    with pytest.raises(ValueError, match="Only one of"):
+        fetch_loss_hessian_mv(lambda x: x, lambda y: y)
+    with pytest.raises(ValueError, match="Unsupported"):
+        fetch_loss_hessian_mv("DefinitelyUnsupportedSuperObscureSpaceballLoss", None)
