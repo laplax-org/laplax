@@ -35,6 +35,7 @@ nav:
     - Laplax for regression: _examples/0001_laplax_for_regression.md
     - Laplax on MNIST: _examples/0002_laplax_on_mnist.md
     - Laplax for active learning: _examples/0003_laplax_for_active_learning.md
+    - Laplax for active classification learning: _examples/0004_laplax_for_active_classification_learning.md
   - API Reference:
     - Overview: api.md
     - Modules:
