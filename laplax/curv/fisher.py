@@ -367,7 +367,8 @@ def create_MC_fisher_mv(
 
     The resulting matrix vector product computes:
     $$
-    \text{factor} \cdot \frac{1}{\text{mc\_samples}}\sum_{n,m} J_n^\top \left(\nabla_{f_n}
+    \text{factor} \cdot \frac{1}{\text{mc\_samples}}\sum_{n,m}
+    J_n^\top \left(\nabla_{f_n}
     c(y=\tilde{y}_{n,m},\hat{y}=f_n)\right) \left(\nabla_{f_n}
     c(y=\tilde{y}_{n,m},\hat{y}=f_n)\right)^\top J_n \cdot v
     $$
