@@ -24,7 +24,7 @@ Currently supported curvature-vector products are:
 - **MC-Fisher-mv (Monte-Carlo approximated):**
 
     $$
-    v \mapsto \sum_{n=1}^{N}\sum_{n=1}^{M}\mathcal{J}_\theta^\top(f_{\theta^*}(x_n))\nabla_{f_{\theta^*}(x_n)}\ell(f_\theta(x_n), \tilde{y}_{n,m})\nabla_{f_{\theta^*}(x_n)}^\top\ell(f_\theta(x_n), \tilde{y}_{n,m})\mathcal{J}_\theta(f_{\theta^*}(x_n))\,v
+    v \mapsto \tfrac{1}{M} \sum_{n=1}^{N}\sum_{m=1}^{M}\mathcal{J}_\theta^\top(f_{\theta^*}(x_n))\nabla_{f_{\theta^*}(x_n)}\ell(f_\theta(x_n), \tilde{y}_{n,m})\nabla_{f_{\theta^*}(x_n)}^\top\ell(f_\theta(x_n), \tilde{y}_{n,m})\mathcal{J}_\theta(f_{\theta^*}(x_n))\,v
     $$
 
 In the latter, $\tilde{y}_{n,m}$ are labels sampled from the likelihood induced by the loss function: $\tilde{y}_{n,m} \sim e^{-\ell(f_\theta(x_n), y)}$
