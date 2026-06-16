@@ -323,8 +323,14 @@ plot_data = []
 sampling_keys = jax.random.split(sampling_key, learning_rounds)
 accuracies = []
 
+# To keep the rendered output readable, we only print the details of the first
+# `verbose_rounds` rounds (raise this to see more).
+verbose_rounds = 2
+
 for i, _key in tqdm(enumerate(sampling_keys)):
-    print(f"Active learning round {i + 1}")
+    verbose = i < verbose_rounds
+    if verbose:
+        print(f"Active learning round {i + 1}")
     # 1) Sample new datapoint
     next_target = true_function(next_point)
     class_dataloader = class_dataloader.add(next_point, jnp.atleast_1d(next_target))
@@ -336,6 +342,7 @@ for i, _key in tqdm(enumerate(sampling_keys)):
         class_dataloader,
         train_step,
         n_epochs=epochs_per_learning_round,
+        verbose=verbose,
     )
     grid_preds = jnp.argmax(class_model(gridpoints), axis=-1)
 
@@ -359,7 +366,10 @@ for i, _key in tqdm(enumerate(sampling_keys)):
         uncertainty,
         next_point,
     ))
-    print("-----------------------")
+    if verbose:
+        print("-----------------------")
+    elif i == verbose_rounds:
+        print(f"... (running {learning_rounds - verbose_rounds} more rounds) ...")
 
 # %%
 show_animation_classification(plot_data)

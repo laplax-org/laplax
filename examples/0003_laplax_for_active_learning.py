@@ -90,12 +90,13 @@ key = random.key(seed)
 # and adds Gaussian measurement noise.
 #
 # <div class="alert alert-block alert-info">
-# You can vary the noise variance using the slider widget below.
-# There will be more choices to play around with throughout this notebook.
-# Remember to execute all cells below after changing the value of a widget.
+# This notebook uses a default noise variance of <code>0.01</code>.
+# When running the notebook interactively (e.g. in Jupyter or Colab) you can
+# vary it with the slider below — there are more such controls further down.
+# Remember to re-execute the cells beneath a widget after changing its value.
 # </div>
 
-# %%
+# %% tags=["remove-output"]
 var_widget = widgets.FloatLogSlider(
     value=0.01, base=10, min=-3, max=0, step=0.001, description="Variance"
 )
@@ -239,10 +240,11 @@ plt.show()
 # Also, laplax never instantiates the full matrix, but performs
 # the downstream calculations in a memory-efficient manner.
 #
-# You can try one of the low-rank methods or even a diagonal approximation
-# to see how this speeds up the computation.
+# We use the `full` curvature by default. When running interactively, you can
+# select one of the low-rank methods (`lanczos`, `lobpcg`) or the `diagonal`
+# approximation in the dropdown below to see how this speeds up the computation.
 
-# %%
+# %% tags=["remove-output"]
 lib_dropdown = widgets.Dropdown(
     options=["full", "diagonal", "lanczos", "lobpcg"],
     value="full",
@@ -547,8 +549,17 @@ learning_rounds = 16
 
 
 def active_learning_loop(
-    model, criterion_fn, next_datapoint, dataloader, prior_prec, learning_rounds
+    model,
+    criterion_fn,
+    next_datapoint,
+    dataloader,
+    prior_prec,
+    learning_rounds,
+    verbose_rounds=2,
 ):
+    # To keep the rendered output readable, we only print the details of the
+    # first `verbose_rounds` rounds (set verbose_rounds=learning_rounds to see
+    # them all).
     key = random.key(21780)
     keys = random.split(key, learning_rounds)
 
@@ -556,7 +567,9 @@ def active_learning_loop(
     optimizer = nnx.Optimizer(model, optax.adam(lr))
 
     for i, key in tqdm(enumerate(keys)):
-        print(f"Active learning round {i + 1}")
+        verbose = i < verbose_rounds
+        if verbose:
+            print(f"Active learning round {i + 1}")
         # 1) Sample new datapoint
         next_target = sample_target(
             next_datapoint, key, sample_variance=sample_variance
@@ -565,7 +578,12 @@ def active_learning_loop(
 
         # 2) Continue training
         model = train_model(
-            model, optimizer, dataloader, train_step, n_epochs=epochs_per_learning_round
+            model,
+            optimizer,
+            dataloader,
+            train_step,
+            n_epochs=epochs_per_learning_round,
+            verbose=verbose,
         )
 
         # 3) Calibrate and compute uncertainty
@@ -578,7 +596,8 @@ def active_learning_loop(
         prior_prec = calibrate_prior_precision(
             dataloader, model, posterior_fn, grid_params
         )
-        print(f"Calibrated precision: {prior_prec:.0f}")
+        if verbose:
+            print(f"Calibrated precision: {prior_prec:.0f}")
         kernel = get_posterior_covariance_kernel(model, posterior_fn, prior_prec)
 
         # 4) Find next datapoint location
@@ -595,7 +614,10 @@ def active_learning_loop(
             criterion,
             next_datapoint,
         ))
-        print("-----------------------")
+        if verbose:
+            print("-----------------------")
+        elif i == verbose_rounds:
+            print(f"... (running {learning_rounds - verbose_rounds} more rounds) ...")
 
     return plot_data, model, dataloader
 
@@ -634,10 +656,11 @@ show_animation(plot_data)
 # For a fair comparison, we train the passive model with the same
 # number of datapoints and for the same overall number of epochs.
 # Note however that in active learning, epochs are much smaller in the beginning.
-# You can choose between sampling the datapoints randomly (uniform)
-# or with deterministic equidistant spacing.
+# By default the passive datapoints are sampled randomly (uniform); when running
+# interactively you can switch to deterministic equidistant spacing via the
+# dropdown below.
 
-# %%
+# %% tags=["remove-output"]
 sampling_dropdown = widgets.Dropdown(
     options=["Random Uniform", "Equidistant"],
     value="Random Uniform",
@@ -803,6 +826,7 @@ with suppress_info_logging("laplax.eval.calibrate"):
         dataloader,
         prior_prec,
         learning_rounds,
+        verbose_rounds=0,    
     )
 
 # %%
@@ -877,6 +901,7 @@ with suppress_info_logging("laplax.eval.calibrate"):
         dataloader,
         prior_prec,
         learning_rounds,
+        verbose_rounds=0,
     )
 
 # %%

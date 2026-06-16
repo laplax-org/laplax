@@ -723,7 +723,7 @@ def plot_model_comparison(
 
 
 def show_animation(plot_data, interesting_points=None, no_sampling_zone=None):
-    fig, ax1 = plt.subplots(figsize=(8, 4))
+    fig, ax1 = plt.subplots(figsize=(8, 4), dpi=72)
     ax2 = ax1.twinx()
 
     def update(frame):
@@ -802,7 +802,7 @@ def plot_next_point(point, ax=None):
 
 
 def show_animation_classification(plot_data):
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(6, 6), dpi=72)
 
     def update(frame):
         ax.clear()

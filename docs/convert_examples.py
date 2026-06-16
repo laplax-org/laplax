@@ -100,6 +100,15 @@ def process_file(file: Path, examples_dir: Path) -> tuple[str | None, list[Path]
         "markdown",
         "--execute",
         "--stdin",
+        # Strip the output of cells tagged "remove-output" (e.g. ipywidgets,
+        # which cannot render in static markdown and would otherwise leak their
+        # repr). The cell still executes, so variables it defines stay available.
+        # TagRemovePreprocessor sits before ExecutePreprocessor in the default
+        # chain, so we also append a second instance via the exporter's
+        # preprocessors list to make sure stripping happens *after* execution.
+        "--TagRemovePreprocessor.enabled=True",
+        '--TagRemovePreprocessor.remove_all_outputs_tags={"remove-output"}',
+        "--MarkdownExporter.preprocessors=['nbconvert.preprocessors.TagRemovePreprocessor']",
         "--output",
         md_file.name,
     ]

@@ -80,7 +80,7 @@ class Model(nnx.Module):
         return self.linear4(x)
 
 
-def train_model(model, optimizer, dataloader, train_step, n_epochs=1000):
+def train_model(model, optimizer, dataloader, train_step, n_epochs=1000, verbose=True):
     """Trains the given model on the data.
 
     Args:
@@ -90,6 +90,8 @@ def train_model(model, optimizer, dataloader, train_step, n_epochs=1000):
         train_step: Function that performs the train step for one batch
         n_epochs: Number of epochs to train for
         lr: learning rate for optimizer
+        verbose: Whether to print intermediate and final loss values. Set to
+            False to avoid bloating the output when training in a loop.
 
     Returns:
         Trained model
@@ -98,9 +100,10 @@ def train_model(model, optimizer, dataloader, train_step, n_epochs=1000):
         for x_batch, y_batch in dataloader:
             loss = train_step(model, optimizer, x_batch, y_batch)
 
-        if epoch % 100 == 0 and epoch != 0:
+        if verbose and epoch % 100 == 0 and epoch != 0:
             print(f"[epoch {epoch}]: loss: {loss:.4f}")
-    print(f"Final loss: {loss:.4f}")
+    if verbose:
+        print(f"Final loss: {loss:.4f}")
     return model
 
 
