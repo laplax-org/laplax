@@ -826,7 +826,7 @@ with suppress_info_logging("laplax.eval.calibrate"):
         dataloader,
         prior_prec,
         learning_rounds,
-        verbose_rounds=0,    
+        verbose_rounds=0,
     )
 
 # %%

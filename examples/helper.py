@@ -80,7 +80,9 @@ class Model(nnx.Module):
         return self.linear4(x)
 
 
-def train_model(model, optimizer, dataloader, train_step, n_epochs=1000, verbose=True):
+def train_model(
+    model, optimizer, dataloader, train_step, n_epochs=1000, *, verbose=True
+):
     """Trains the given model on the data.
 
     Args:
